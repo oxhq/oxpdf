@@ -15,13 +15,14 @@ it is rewritten as user-facing documentation.
 ## Reader
 
 - Implemented first: `Open`, `OpenFile`, `OpenBytes`, `Document`, `NumPages`,
-  `Page`, `Metadata`, `Profile`, `Validate`.
+  `Page`, `Metadata`, `Profile`, `Validate`, page boxes, and rotation.
 - Backing: `pdf.Adapter.Parse`, root node metadata, xref/boundary summary.
 - pypdf evidence: `_reader.py`, `_doc_common.py`, `tests/test_reader.py`,
   and `tests/test_doc_common.py` cover opening, header, pages, metadata,
   encryption state, trailer/root, and malformed/xref behavior.
-- Gap: page boxes, trailer/root structured summaries, full metadata, and
-  password-open support need a higher-level binas API.
+- Gap: trailer/root structured summaries, inherited page-tree attributes beyond
+  current corpus coverage, and password-open support need a higher-level binas
+  API.
 
 ## Writer And Pages
 

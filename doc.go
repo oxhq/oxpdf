@@ -130,7 +130,9 @@ func (d *Document) Metadata() Metadata {
 	if d == nil {
 		return Metadata{}
 	}
-	return Metadata{Header: d.Header()}
+	metadata := parseMetadata(d.input)
+	metadata.Header = d.Header()
+	return metadata
 }
 
 // Tree returns a copy of the parsed binas tree for advanced inspection.
@@ -153,11 +155,6 @@ func (p *Page) Index() int {
 		return -1
 	}
 	return p.index
-}
-
-// Metadata is the high-level document metadata currently exposed by OxPDF.
-type Metadata struct {
-	Header string
 }
 
 func classifyParseError(err error) error {
