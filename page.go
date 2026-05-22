@@ -161,21 +161,19 @@ func parsePageBox(dict []byte, name string) (Rectangle, bool) {
 }
 
 func parsePageRotation(input, dict []byte) int {
-	value, ok := directNameValue(dict, "Rotate")
-	if !ok {
+	rotationRe := regexp.MustCompile(`/Rotate\s+([+-]?\d+)(?:\s+(\d+)\s+R\b)?`)
+	match := rotationRe.FindSubmatch(dict)
+	if len(match) == 0 {
 		return 0
 	}
-	fields := bytes.Fields(value)
-	if len(fields) == 0 {
+	rotation, err := strconv.Atoi(string(match[1]))
+	if err != nil {
 		return 0
 	}
-	if rotation, err := strconv.Atoi(string(fields[0])); err == nil {
-		if len(fields) >= 3 && string(fields[2]) == "R" {
-			return resolveIndirectInteger(input, rotation, atoiBytes(fields[1]))
-		}
-		return normalizeRotation(rotation)
+	if len(match) >= 3 && len(match[2]) > 0 {
+		return resolveIndirectInteger(input, rotation, atoiBytes(match[2]))
 	}
-	return 0
+	return normalizeRotation(rotation)
 }
 
 func resolveIndirectInteger(input []byte, number, gen int) int {

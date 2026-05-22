@@ -207,8 +207,8 @@ func TestFormAndAnnotationAPIsRemainExplicitlyUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := doc.Fields(); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("Fields() error = %v, want ErrUnsupported", err)
+	if _, err := doc.Fill(map[string]string{"name": "Ada"}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Fill() error = %v, want ErrUnsupported", err)
 	}
 	page, err := doc.Page(0)
 	if err != nil {
@@ -216,6 +216,53 @@ func TestFormAndAnnotationAPIsRemainExplicitlyUnsupported(t *testing.T) {
 	}
 	if _, err := page.Annotations(); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("Annotations() error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestPypdfCorpusFieldsAndTextFields(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "libreoffice-form.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := doc.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 8 {
+		t.Fatalf("Fields() len = %d, want 8", len(fields))
+	}
+	assertField(t, fields[0], Field{Name: "First Name", Type: "Tx", Value: "Alice", Status: "supported"})
+	assertField(t, fields[1], Field{Name: "Last Name", Type: "Tx", Value: "", Status: "supported"})
+	assertField(t, fields[2], Field{Name: "female", Type: "Btn", Value: "Off", Status: "supported"})
+	assertField(t, fields[7], Field{Name: "Nationality", Type: "Ch", Value: "", Status: "supported"})
+
+	textFields, err := doc.TextFields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(textFields) != 4 {
+		t.Fatalf("TextFields() len = %d, want 4", len(textFields))
+	}
+	gotNames := make([]string, 0, len(textFields))
+	for _, field := range textFields {
+		gotNames = append(gotNames, field.Name)
+		if field.Type != "Tx" {
+			t.Fatalf("TextFields() returned non-text field: %+v", field)
+		}
+	}
+	wantNames := []string{"First Name", "Last Name", "Birthday", "First Name_2"}
+	for i := range wantNames {
+		if gotNames[i] != wantNames[i] {
+			t.Fatalf("TextFields()[%d].Name = %q, want %q", i, gotNames[i], wantNames[i])
+		}
+	}
+}
+
+func assertField(t *testing.T, got Field, want Field) {
+	t.Helper()
+	if got.Name != want.Name || got.Type != want.Type || got.Value != want.Value || got.Status != want.Status {
+		t.Fatalf("field = %+v, want at least %+v", got, want)
 	}
 }
 
@@ -228,7 +275,7 @@ func assertRect(t *testing.T, name string, got Rectangle, want Rectangle) {
 
 func pypdfResources(t *testing.T) string {
 	t.Helper()
-	resources := filepath.Join("C:", "Users", "garae", "Documents", "pypdf", "resources")
+	resources := `C:\Users\garae\Documents\pypdf\resources`
 	if _, err := os.Stat(resources); err != nil {
 		t.Skipf("local pypdf resources not available: %v", err)
 	}

@@ -12,12 +12,12 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | `missing_info.pdf` | `C:\Users\garae\Documents\pypdf\resources\missing_info.pdf` | pass | Missing `/Info` is not an error; metadata should be empty. |
 | `encrypted-file.pdf` | `C:\Users\garae\Documents\pypdf\resources\encrypted-file.pdf` | unsupported | Structured encrypted/security refusal, no panic or generic parse failure. |
 | `r2-user-password.pdf` | `C:\Users\garae\Documents\pypdf\resources\encryption\r2-user-password.pdf` | unsupported | Named Standard Security boundary case for v0.6. |
-| `pdflatex-forms.pdf` | `C:\Users\garae\Documents\pypdf\resources\pdflatex-forms.pdf` | profile-only | AcroForm presence; field APIs remain v0.4. |
-| `libreoffice-form.pdf` | `C:\Users\garae\Documents\pypdf\resources\libreoffice-form.pdf` | profile-only pass | Richer real-world form and annotation pressure: 8 fillable fields, 9 blocked annotations. |
+| `pdflatex-forms.pdf` | `C:\Users\garae\Documents\pypdf\resources\pdflatex-forms.pdf` | profile-only | AcroForm presence; Unicode field-name decoding still belongs in the backing API. |
+| `libreoffice-form.pdf` | `C:\Users\garae\Documents\pypdf\resources\libreoffice-form.pdf` | fields/profile pass | Richer real-world form and annotation pressure: 8 fillable fields, 4 text fields, 9 blocked annotations. |
 | `commented.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented.pdf` | profile-only pass | Annotation boundary before `Page.Annotations()`: 6 annotations, 3 currently editable through binas profile. |
 | `box.pdf` | `C:\Users\garae\Documents\pypdf\resources\box.pdf` | pass | Page box fallback smoke: all boxes resolve to `[0 0 60 60]`, rotation `0`. |
 | `indirect-rotation.pdf` | `C:\Users\garae\Documents\pypdf\resources\indirect-rotation.pdf` | pass | Five pages with indirect `/Rotate` resolving to `0` and media box `[0 0 612 792]`. |
 
-Next concrete step: add high-level `Fields()`/`TextFields()` over released
-`binas` metadata if the API exposes stable field names and values; otherwise
-continue with writer/page operations.
+Next concrete step: expose read-only annotation listing over released `binas`
+metadata, or continue with writer/page operations if annotation page mapping is
+not stable enough.
