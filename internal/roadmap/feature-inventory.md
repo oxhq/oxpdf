@@ -49,6 +49,9 @@ it is rewritten as user-facing documentation.
 - `Fields()` and `TextFields()` expose read-only field metadata from released
   `binas` for stable field names, values, types, flags, status, blockers, and
   options.
+- `Page.Annotations()` exposes read-only annotation metadata from released
+  `binas` for subtype, decoded contents/title, status, blockers, rectangles,
+  colors, border, flags, and appearance presence.
 - Public mutation APIs still return structured unsupported errors.
 - Profile-level form and annotation boundaries are exposed through released
   `pdfapi.Profile`: field counts, fillable counts, annotation counts, editable

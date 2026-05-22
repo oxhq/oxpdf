@@ -62,13 +62,37 @@ func (d *Document) SetCheckbox(name string, checked bool) ([]byte, error) {
 
 // Annotation describes a page annotation.
 type Annotation struct {
-	Kind     string
-	Contents string
+	Kind          string
+	Contents      string
+	Name          string
+	Title         string
+	Modified      string
+	Status        string
+	Blockers      []string
+	Rect          []float64
+	Color         []float64
+	Border        []float64
+	Flags         []string
+	HasAppearance bool
 }
 
-// Annotations lists common page annotations when available.
+// Annotations lists annotation metadata for a page.
 func (p *Page) Annotations() ([]Annotation, error) {
-	return nil, unsupported("annotation listing awaits stable binas annotation metadata")
+	if p == nil || p.doc == nil {
+		return nil, nil
+	}
+	annotations, err := binaspdf.ListAnnotationCandidates(p.doc.input)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
+	out := make([]Annotation, 0, len(annotations))
+	for _, annotation := range annotations {
+		if annotation.PageIndex != nil && *annotation.PageIndex != p.index {
+			continue
+		}
+		out = append(out, mapAnnotation(annotation))
+	}
+	return out, nil
 }
 
 func mapFormField(field binaspdf.FormFieldMetadata) Field {
@@ -94,4 +118,21 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func mapAnnotation(annotation binaspdf.AnnotationCandidateMetadata) Annotation {
+	return Annotation{
+		Kind:          annotation.Subtype,
+		Contents:      decodePDFTextBytes([]byte(annotation.Contents)),
+		Name:          decodePDFTextBytes([]byte(annotation.Name)),
+		Title:         decodePDFTextBytes([]byte(annotation.Title)),
+		Modified:      annotation.Modified,
+		Status:        annotation.AppearanceGenerationStatus,
+		Blockers:      append([]string(nil), annotation.AppearanceGenerationBlockers...),
+		Rect:          append([]float64(nil), annotation.Rect...),
+		Color:         append([]float64(nil), annotation.Color...),
+		Border:        append([]float64(nil), annotation.Border...),
+		Flags:         append([]string(nil), annotation.FlagNames...),
+		HasAppearance: annotation.HasAppearance,
+	}
 }

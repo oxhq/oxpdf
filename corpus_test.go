@@ -210,12 +210,8 @@ func TestFormAndAnnotationAPIsRemainExplicitlyUnsupported(t *testing.T) {
 	if _, err := doc.Fill(map[string]string{"name": "Ada"}); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("Fill() error = %v, want ErrUnsupported", err)
 	}
-	page, err := doc.Page(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := page.Annotations(); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("Annotations() error = %v, want ErrUnsupported", err)
+	if _, err := doc.SetCheckbox("agree", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetCheckbox() error = %v, want ErrUnsupported", err)
 	}
 }
 
@@ -264,6 +260,86 @@ func assertField(t *testing.T, got Field, want Field) {
 	if got.Name != want.Name || got.Type != want.Type || got.Value != want.Value || got.Status != want.Status {
 		t.Fatalf("field = %+v, want at least %+v", got, want)
 	}
+}
+
+func TestPypdfCorpusPageAnnotations(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "commented.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	annotations, err := page.Annotations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(annotations) != 6 {
+		t.Fatalf("Annotations() len = %d, want 6", len(annotations))
+	}
+	assertAnnotation(t, annotations[0], Annotation{
+		Kind:     "Text",
+		Contents: "Note in second paragraph",
+		Title:    "moose",
+		Status:   "approximate_supported",
+		Rect:     []float64{270.75, 596.25, 294.75, 620.25},
+	})
+	assertAnnotation(t, annotations[1], Annotation{
+		Kind:     "Popup",
+		Status:   "unsupported",
+		Blockers: []string{"unsupported_subtype"},
+	})
+	assertAnnotation(t, annotations[2], Annotation{
+		Kind:   "Highlight",
+		Title:  "moose",
+		Status: "approximate_supported",
+		Rect:   []float64{176, 557, 203, 568},
+	})
+	if annotations[4].Kind != "Text" || annotations[4].Title != "moose" {
+		t.Fatalf("annotation 4 = %+v", annotations[4])
+	}
+	if annotations[4].Contents == "" || annotations[4].Contents == "note over \"kinds\"" {
+		t.Fatalf("annotation 4 contents were not decoded fully: %q", annotations[4].Contents)
+	}
+}
+
+func assertAnnotation(t *testing.T, got Annotation, want Annotation) {
+	t.Helper()
+	if got.Kind != want.Kind || got.Contents != want.Contents || got.Title != want.Title || got.Status != want.Status {
+		t.Fatalf("annotation = %+v, want at least %+v", got, want)
+	}
+	if len(want.Blockers) > 0 && !sameStrings(got.Blockers, want.Blockers) {
+		t.Fatalf("annotation blockers = %v, want %v", got.Blockers, want.Blockers)
+	}
+	if len(want.Rect) > 0 && !sameFloat64s(got.Rect, want.Rect) {
+		t.Fatalf("annotation rect = %v, want %v", got.Rect, want.Rect)
+	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameFloat64s(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func assertRect(t *testing.T, name string, got Rectangle, want Rectangle) {
