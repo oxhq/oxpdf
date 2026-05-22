@@ -134,6 +134,91 @@ func TestPypdfCorpusIndirectRotation(t *testing.T) {
 	}
 }
 
+func TestPypdfCorpusFormAndAnnotationProfileBoundaries(t *testing.T) {
+	resources := pypdfResources(t)
+	tests := []struct {
+		file                string
+		fillable            bool
+		formFields          int
+		formFillable        int
+		annotationsPresent  bool
+		annotationCount     int
+		editableAnnotations int
+		blockedAnnotations  int
+		annotationsMakeEdit bool
+	}{
+		{
+			file:                "libreoffice-form.pdf",
+			fillable:            true,
+			formFields:          8,
+			formFillable:        8,
+			annotationsPresent:  true,
+			annotationCount:     9,
+			blockedAnnotations:  9,
+			annotationsMakeEdit: false,
+		},
+		{
+			file:                "commented.pdf",
+			fillable:            false,
+			annotationsPresent:  true,
+			annotationCount:     6,
+			editableAnnotations: 3,
+			blockedAnnotations:  3,
+			annotationsMakeEdit: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			doc, err := OpenFile(filepath.Join(resources, tt.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile := doc.Profile()
+			if profile.Fillable != tt.fillable {
+				t.Fatalf("Profile().Fillable = %v, want %v", profile.Fillable, tt.fillable)
+			}
+			if profile.Forms.FieldCount != tt.formFields {
+				t.Fatalf("Profile().Forms.FieldCount = %d, want %d", profile.Forms.FieldCount, tt.formFields)
+			}
+			if profile.Forms.FillableCount != tt.formFillable {
+				t.Fatalf("Profile().Forms.FillableCount = %d, want %d", profile.Forms.FillableCount, tt.formFillable)
+			}
+			if profile.Annotations.Present != tt.annotationsPresent {
+				t.Fatalf("Profile().Annotations.Present = %v, want %v", profile.Annotations.Present, tt.annotationsPresent)
+			}
+			if profile.Annotations.Count != tt.annotationCount {
+				t.Fatalf("Profile().Annotations.Count = %d, want %d", profile.Annotations.Count, tt.annotationCount)
+			}
+			if profile.Annotations.EditableCount != tt.editableAnnotations {
+				t.Fatalf("Profile().Annotations.EditableCount = %d, want %d", profile.Annotations.EditableCount, tt.editableAnnotations)
+			}
+			if profile.Annotations.BlockerCount != tt.blockedAnnotations {
+				t.Fatalf("Profile().Annotations.BlockerCount = %d, want %d", profile.Annotations.BlockerCount, tt.blockedAnnotations)
+			}
+			if (profile.Annotations.EditableCount > 0) != tt.annotationsMakeEdit {
+				t.Fatalf("Profile().Annotations editability mismatch: %+v", profile.Annotations)
+			}
+		})
+	}
+}
+
+func TestFormAndAnnotationAPIsRemainExplicitlyUnsupported(t *testing.T) {
+	doc, err := OpenBytes(blankPDF([]PageSize{PageSizeLetter}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.Fields(); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Fields() error = %v, want ErrUnsupported", err)
+	}
+	page, err := doc.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.Annotations(); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Annotations() error = %v, want ErrUnsupported", err)
+	}
+}
+
 func assertRect(t *testing.T, name string, got Rectangle, want Rectangle) {
 	t.Helper()
 	if got != want {

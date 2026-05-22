@@ -5,12 +5,9 @@ it is rewritten as user-facing documentation.
 
 ## Current Backing Reality
 
-- Roadmap target dependency: `github.com/oxhq/binas/pkg/pdfapi`.
-- Current live binas module exposes `github.com/oxhq/binas/pkg/adapters/pdf`
-  and `github.com/oxhq/binas/pkg/core`; `pkg/pdfapi` is not present yet.
-- OxPDF therefore keeps its public API in package `oxpdf` and hides the current
-  adapter behind document/profile/text methods that can later move to `pdfapi`
-  without changing callers.
+- Current dependency: `github.com/oxhq/binas v0.1.1`.
+- OxPDF uses `github.com/oxhq/binas/pkg/pdfapi` for inspect, validate, profile,
+  text query, and verified text rewrite without shelling out.
 
 ## Reader
 
@@ -49,9 +46,13 @@ it is rewritten as user-facing documentation.
 
 ## Forms And Annotations
 
-- Public placeholders exist with structured unsupported errors.
-- Backing candidates in binas: `ListFormFields`, `ApplyFormFieldEdit`,
-  `ListAnnotationCandidates`, and annotation content edit helpers.
+- Public mutation APIs still return structured unsupported errors.
+- Profile-level form and annotation boundaries are exposed through released
+  `pdfapi.Profile`: field counts, fillable counts, annotation counts, editable
+  annotation counts, and blocker counts.
+- Backing candidates in binas for future stable APIs: `ListFormFields`,
+  `ApplyFormFieldEdit`, `ListAnnotationCandidates`, and annotation content edit
+  helpers.
 - pypdf evidence: `_doc_common.py`, `_writer.py`, `annotations/*`,
   `generic/_appearance_stream.py`, `tests/test_forms.py`, and
   `tests/test_annotations.py`.

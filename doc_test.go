@@ -52,10 +52,13 @@ func TestOpenFile(t *testing.T) {
 	}
 }
 
-func TestWithPasswordFailsClosed(t *testing.T) {
-	_, err := OpenBytes(blankPDF([]PageSize{PageSizeLetter}), WithPassword("secret"))
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("OpenBytes() error = %v, want ErrUnsupported", err)
+func TestWithPasswordIsPassedToBackingAPI(t *testing.T) {
+	doc, err := OpenBytes(blankPDF([]PageSize{PageSizeLetter}), WithPassword("secret"))
+	if err != nil {
+		t.Fatalf("OpenBytes() with password on unencrypted PDF returned error: %v", err)
+	}
+	if doc.NumPages() != 1 {
+		t.Fatalf("NumPages() = %d, want 1", doc.NumPages())
 	}
 }
 

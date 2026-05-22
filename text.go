@@ -1,8 +1,7 @@
 package oxpdf
 
 import (
-	"github.com/oxhq/binas/pkg/adapters/pdf"
-	"github.com/oxhq/binas/pkg/core"
+	"github.com/oxhq/binas/pkg/pdfapi"
 )
 
 // TextMatch describes a selectable text occurrence found by the backing parser.
@@ -21,10 +20,13 @@ type TextEditability struct {
 
 // FindText returns selectable text nodes that exactly match text.
 func (d *Document) FindText(text string) ([]TextMatch, error) {
-	if d == nil || d.tree == nil {
+	if d == nil {
 		return nil, nil
 	}
-	nodes := d.tree.Query(core.Match{Kind: pdf.KindTextShow, Text: text})
+	nodes, err := pdfapi.QueryText(d.input, pdfapi.TextSelector{Text: text}, d.options)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
 	matches := make([]TextMatch, 0, len(nodes))
 	for _, node := range nodes {
 		encoding, _ := node.Meta["encoding"].(string)
@@ -43,14 +45,18 @@ func (d *Document) FindText(text string) ([]TextMatch, error) {
 // The current binas adapter does not map text nodes back to page objects yet, so
 // page 0 exposes document-level selectable text and later pages fail closed.
 func (p *Page) ExtractText() (string, error) {
-	if p == nil || p.doc == nil || p.doc.tree == nil {
+	if p == nil || p.doc == nil {
 		return "", nil
 	}
 	if p.index != 0 {
 		return "", unsupported("page-scoped text extraction awaits page-to-stream mapping in binas")
 	}
+	nodes, err := pdfapi.QueryText(p.doc.input, pdfapi.TextSelector{}, p.doc.options)
+	if err != nil {
+		return "", classifyParseError(err)
+	}
 	var out string
-	for _, node := range p.doc.tree.Query(core.Match{Kind: pdf.KindTextShow}) {
+	for _, node := range nodes {
 		if out != "" {
 			out += "\n"
 		}
@@ -73,16 +79,21 @@ func (d *Document) ReplaceText(oldText, newText string) ([]byte, error) {
 	if d == nil {
 		return nil, unsupported("missing document")
 	}
-	out, _, _, err := pdf.ApplyCanonicalEdit(
+	out, _, _, err := pdfapi.EditText(
 		d.input,
-		core.Match{Kind: pdf.KindTextShow, Text: oldText},
-		core.Mutation{Replace: newText},
-		[]core.Invariant{
-			core.InvariantReparse,
-			core.InvariantOldGone,
-			core.InvariantNewSelectable,
-			core.InvariantPageUnchanged,
-			core.InvariantNoFallbackUsed,
+		pdfapi.TextSelector{Text: oldText},
+		pdfapi.TextReplacement{Replace: newText},
+		pdfapi.Options{
+			Password:      d.options.Password,
+			SignatureMode: d.options.SignatureMode,
+			Rewrite:       pdfapi.RewriteModeCanonical,
+			Verify: []string{
+				"reparse",
+				"old-gone",
+				"new-selectable",
+				"page-count-unchanged",
+				"no-fallback",
+			},
 		},
 	)
 	if err != nil {

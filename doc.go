@@ -12,8 +12,8 @@ import (
 	"io"
 	"os"
 
-	binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
 	"github.com/oxhq/binas/pkg/core"
+	"github.com/oxhq/binas/pkg/pdfapi"
 )
 
 var (
@@ -51,12 +51,8 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 			opt(&cfg)
 		}
 	}
-	if cfg.password != "" {
-		return nil, unsupported("password-protected PDFs require binas Standard Security support")
-	}
-
-	adapter := binaspdf.NewAdapter()
-	tree, err := adapter.Parse(input, core.ParseOptions{Strict: cfg.strict})
+	apiOpts := pdfapi.Options{Password: cfg.password}
+	tree, err := pdfapi.Inspect(input, apiOpts)
 	if err != nil {
 		return nil, classifyParseError(err)
 	}
@@ -68,7 +64,7 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 		input:   bytes.Clone(input),
 		tree:    tree,
 		root:    root,
-		adapter: adapter,
+		options: apiOpts,
 	}, nil
 }
 
@@ -77,7 +73,7 @@ type Document struct {
 	input   []byte
 	tree    *core.Tree
 	root    core.Node
-	adapter binaspdf.Adapter
+	options pdfapi.Options
 }
 
 // Bytes returns a copy of the original document bytes.
