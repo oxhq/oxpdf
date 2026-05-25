@@ -202,7 +202,7 @@ func TestPypdfCorpusFormAndAnnotationProfileBoundaries(t *testing.T) {
 	}
 }
 
-func TestFormAndAnnotationAPIsRemainExplicitlyUnsupported(t *testing.T) {
+func TestFormMutationMissingFieldFailsClosed(t *testing.T) {
 	doc, err := OpenBytes(blankPDF([]PageSize{PageSizeLetter}))
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +260,64 @@ func assertField(t *testing.T, got Field, want Field) {
 	if got.Name != want.Name || got.Type != want.Type || got.Value != want.Value || got.Status != want.Status {
 		t.Fatalf("field = %+v, want at least %+v", got, want)
 	}
+}
+
+func TestPypdfCorpusFillTextFieldsAndCheckboxes(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "libreoffice-form.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := doc.Fill(map[string]string{
+		"Last Name": "Lovelace",
+		"Birthday":  "1815-12-10",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filled, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFieldValue(t, filled, "Last Name", "Lovelace")
+	assertFieldValue(t, filled, "Birthday", "1815-12-10")
+
+	out, err = filled.SetCheckbox("gdpr", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFieldValue(t, checked, "gdpr", "Yes")
+
+	out, err = checked.SetCheckbox("gdpr", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchecked, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFieldValue(t, unchecked, "gdpr", "Off")
+}
+
+func assertFieldValue(t *testing.T, doc *Document, name string, want string) {
+	t.Helper()
+	fields, err := doc.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range fields {
+		if field.Name == name {
+			if field.Value != want {
+				t.Fatalf("field %q value = %q, want %q", name, field.Value, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("field %q not found", name)
 }
 
 func TestPypdfCorpusPageAnnotations(t *testing.T) {

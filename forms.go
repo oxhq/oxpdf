@@ -1,6 +1,11 @@
 package oxpdf
 
-import binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
+import (
+	"fmt"
+	"sort"
+
+	binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
+)
 
 // Field describes a PDF form field.
 type Field struct {
@@ -52,12 +57,54 @@ func (d *Document) TextFields() ([]Field, error) {
 
 // Fill fills supported form fields and returns rewritten PDF bytes.
 func (d *Document) Fill(values map[string]string) ([]byte, error) {
-	return nil, unsupported("form filling awaits OxPDF field appearance guardrails")
+	if d == nil {
+		return nil, unsupported("missing document")
+	}
+	out := d.Bytes()
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		next, _, verification, err := binaspdf.ApplyFormFieldEdit(out, key, values[key])
+		if err != nil {
+			return nil, unsupported(err.Error())
+		}
+		if !verification.ReparseOK || !verification.FieldValueSet || !verification.NeedAppearancesSet {
+			return nil, unsupported(fmt.Sprintf("field %q edit did not satisfy verification", key))
+		}
+		out = next
+	}
+	return out, nil
 }
 
 // SetCheckbox sets a checkbox field value.
 func (d *Document) SetCheckbox(name string, checked bool) ([]byte, error) {
-	return nil, unsupported("checkbox filling awaits OxPDF field appearance guardrails")
+	if d == nil {
+		return nil, unsupported("missing document")
+	}
+	value := "Off"
+	if checked {
+		value = "Yes"
+		fields, err := d.Fields()
+		if err != nil {
+			return nil, err
+		}
+		for _, field := range fields {
+			if field.Name != name {
+				continue
+			}
+			for _, state := range field.ButtonStates {
+				if state != "Off" {
+					value = state
+					break
+				}
+			}
+			break
+		}
+	}
+	return d.Fill(map[string]string{name: value})
 }
 
 // Annotation describes a page annotation.
