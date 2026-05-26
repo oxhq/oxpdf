@@ -5,6 +5,7 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | Fixture | Source | v0.1 Expectation | Purpose |
 | --- | --- | --- | --- |
 | synthetic blank page | OxPDF tests | pass | Reader, profile, validate, writer parse-after-write. |
+| synthetic two-page blank PDF | OxPDF tests | structure pass | Classic trailer `/Size` and `/Root`, catalog `/Pages`, and xref table summary. |
 | synthetic selectable text | OxPDF tests | pass | `FindText`, `ExtractText`, verified `ReplaceText`. |
 | `hello-world.pdf` | `C:\Users\garae\Documents\pypdf\resources\hello-world.pdf` | pass | Ordinary open from bytes/file, `NumPages()==1`, no security boundary. |
 | `two-different-pages.pdf` | `C:\Users\garae\Documents\pypdf\resources\two-different-pages.pdf` | pass | Multi-page traversal, `NumPages()==2`, `Page(0)` and `Page(1)`. |
@@ -21,6 +22,7 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | `attachment.pdf` | `C:\Users\garae\Documents\pypdf\resources\attachment.pdf` | attachment/direct filespec pass | Direct file attachment annotation through `/Filespec` -> `/EF /F` embedded file stream, zlib `FlateDecode`, decoded `jpeg.pdf` payload. |
 | `jpeg.pdf` | `C:\Users\garae\Documents\pypdf\resources\jpeg.pdf` | stream inventory pass | Five stream nodes, including DCT image XObject metadata marked `pass_through_image` without claiming extraction. |
 | `reportlab-inline-image.pdf` | `C:\Users\garae\Documents\pypdf\resources\reportlab-inline-image.pdf` | stream inventory pass | Editable reversible stream filter chain `[ASCII85Decode FlateDecode]`; no inline-image extraction claim. |
+| `outline-without-title.pdf` | `C:\Users\garae\Documents\pypdf\resources\outline-without-title.pdf` | named destinations pass | Direct `/Names` -> `/Dests` name tree with 15 `/XYZ` destinations; outlines remain a separate flat-read roadmap slice. |
 | `box.pdf` | `C:\Users\garae\Documents\pypdf\resources\box.pdf` | pass | Page box fallback smoke: all boxes resolve to `[0 0 60 60]`, rotation `0`. |
 | `indirect-rotation.pdf` | `C:\Users\garae\Documents\pypdf\resources\indirect-rotation.pdf` | pass | Five pages with indirect `/Rotate` resolving to `0` and media box `[0 0 612 792]`. |
 | synthetic static XFA | OxPDF tests | XFA pass | XFA packet listing, static dataset field listing, template/dataset mappings, XML-escaped static dataset update. |

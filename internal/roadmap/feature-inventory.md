@@ -13,12 +13,15 @@ it is rewritten as user-facing documentation.
 
 - Implemented first: `Open`, `OpenFile`, `OpenBytes`, `Document`, `NumPages`,
   `Page`, `Metadata`, `Profile`, `Validate`, page boxes, and rotation.
+- `Trailer()`, `Catalog()`, and `Xref()` expose read-only structure summaries:
+  classic trailer root/info/size references, direct catalog references, and
+  released binas xref table/stream/object-stream counts.
 - Backing: `pdf.Adapter.Parse`, root node metadata, xref/boundary summary.
 - pypdf evidence: `_reader.py`, `_doc_common.py`, `tests/test_reader.py`,
   and `tests/test_doc_common.py` cover opening, header, pages, metadata,
   encryption state, trailer/root, and malformed/xref behavior.
-- Gap: trailer/root structured summaries and inherited page-tree attributes
-  beyond current corpus coverage.
+- Gap: compressed xref stream trailers, full object graph traversal, and
+  inherited page-tree attributes beyond current corpus coverage.
 
 ## Writer And Pages
 
@@ -108,9 +111,11 @@ it is rewritten as user-facing documentation.
   sparse handles.
 - `Attachments()` exposes direct file-spec attachment payloads backed by
   embedded-file streams with no filter or `FlateDecode`.
+- `NamedDestinations()` exposes read-only named destinations from direct `/Dests`
+  name trees with `/XYZ` arrays and resolvable page object references.
 - pypdf evidence: `xmp.py`, `_page_labels.py`, `_doc_common.py`,
   `_writer.py`, `generic/_files.py`, `tests/test_xmp.py`,
   `tests/test_page_labels.py`, and `tests/test_javascript.py`.
-- Page labels, outlines, named destinations, broad name-tree attachments, and
-  JavaScript name-tree actions remain roadmap items until object graph
-  operations are exposed at a stable backing boundary.
+- Page labels, outlines, broad name-tree attachments, JavaScript name-tree
+  actions, and object-stream-backed navigation fixtures remain roadmap items
+  until object graph operations are exposed at a stable backing boundary.
