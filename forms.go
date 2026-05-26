@@ -135,19 +135,38 @@ func (d *Document) SetButtonChoice(name string, state string) ([]byte, error) {
 
 // Annotation describes a page annotation.
 type Annotation struct {
-	Index         int
-	Kind          string
-	Contents      string
-	Name          string
-	Title         string
-	Modified      string
-	Status        string
-	Blockers      []string
-	Rect          []float64
-	Color         []float64
-	Border        []float64
-	Flags         []string
-	HasAppearance bool
+	Index                int
+	Kind                 string
+	Contents             string
+	Name                 string
+	Title                string
+	Modified             string
+	Status               string
+	Blockers             []string
+	ObjectNumber         int
+	ObjectGeneration     int
+	HasObjectReference   bool
+	PageIndex            int
+	PageObjectNumber     int
+	PageObjectGeneration int
+	HasPageReference     bool
+	Rect                 []float64
+	Color                []float64
+	Border               []float64
+	QuadPointsCount      int
+	FlagValue            int
+	Flags                []string
+	Invisible            bool
+	Hidden               bool
+	Print                bool
+	NoZoom               bool
+	NoRotate             bool
+	NoView               bool
+	ReadOnly             bool
+	Locked               bool
+	ToggleNoView         bool
+	LockedContents       bool
+	HasAppearance        bool
 }
 
 // AnnotationContentsEditOptions configures annotation content edits.
@@ -202,7 +221,7 @@ func (d *Document) SetAnnotationContents(index int, contents string, opts ...Ann
 		return nil, AnnotationContentsEditVerification{}, unsupported(fmt.Sprintf("no annotation matches index %d", index))
 	}
 	if target.AppearanceGenerationStatus != "approximate_supported" || len(target.AppearanceGenerationBlockers) > 0 {
-		return nil, AnnotationContentsEditVerification{}, unsupported(fmt.Sprintf("annotation %d is not safely editable", index))
+		return nil, AnnotationContentsEditVerification{}, unsupported(annotationEditBlockerMessage(*target))
 	}
 	editOptions := []binaspdf.AnnotationContentsEditOptions{}
 	if len(opts) > 0 && opts[0].RegenerateAppearance {
@@ -332,19 +351,63 @@ func containsString(values []string, target string) bool {
 }
 
 func mapAnnotation(annotation binaspdf.AnnotationCandidateMetadata) Annotation {
-	return Annotation{
-		Index:         annotation.Index,
-		Kind:          annotation.Subtype,
-		Contents:      decodePDFTextBytes([]byte(annotation.Contents)),
-		Name:          decodePDFTextBytes([]byte(annotation.Name)),
-		Title:         decodePDFTextBytes([]byte(annotation.Title)),
-		Modified:      annotation.Modified,
-		Status:        annotation.AppearanceGenerationStatus,
-		Blockers:      append([]string(nil), annotation.AppearanceGenerationBlockers...),
-		Rect:          append([]float64(nil), annotation.Rect...),
-		Color:         append([]float64(nil), annotation.Color...),
-		Border:        append([]float64(nil), annotation.Border...),
-		Flags:         append([]string(nil), annotation.FlagNames...),
-		HasAppearance: annotation.HasAppearance,
+	out := Annotation{
+		Index:           annotation.Index,
+		Kind:            annotation.Subtype,
+		Contents:        decodePDFTextBytes([]byte(annotation.Contents)),
+		Name:            decodePDFTextBytes([]byte(annotation.Name)),
+		Title:           decodePDFTextBytes([]byte(annotation.Title)),
+		Modified:        annotation.Modified,
+		Status:          annotation.AppearanceGenerationStatus,
+		Blockers:        append([]string(nil), annotation.AppearanceGenerationBlockers...),
+		Rect:            append([]float64(nil), annotation.Rect...),
+		Color:           append([]float64(nil), annotation.Color...),
+		Border:          append([]float64(nil), annotation.Border...),
+		QuadPointsCount: annotation.QuadPointsCount,
+		FlagValue:       annotation.Flags,
+		Flags:           append([]string(nil), annotation.FlagNames...),
+		Invisible:       annotation.Invisible,
+		Hidden:          annotation.Hidden,
+		Print:           annotation.Print,
+		NoZoom:          annotation.NoZoom,
+		NoRotate:        annotation.NoRotate,
+		NoView:          annotation.NoView,
+		ReadOnly:        annotation.ReadOnly,
+		Locked:          annotation.Locked,
+		ToggleNoView:    annotation.ToggleNoView,
+		LockedContents:  annotation.LockedContents,
+		HasAppearance:   annotation.HasAppearance,
 	}
+	if annotation.ObjectNumber != nil {
+		out.ObjectNumber = *annotation.ObjectNumber
+		out.HasObjectReference = true
+	}
+	if annotation.ObjectGeneration != nil {
+		out.ObjectGeneration = *annotation.ObjectGeneration
+	}
+	if annotation.PageIndex != nil {
+		out.PageIndex = *annotation.PageIndex
+		out.HasPageReference = true
+	}
+	if annotation.PageObjectNumber != nil {
+		out.PageObjectNumber = *annotation.PageObjectNumber
+	}
+	if annotation.PageObjectGeneration != nil {
+		out.PageObjectGeneration = *annotation.PageObjectGeneration
+	}
+	return out
+}
+
+func annotationEditBlockerMessage(annotation binaspdf.AnnotationCandidateMetadata) string {
+	reason := "is not safely editable"
+	if annotation.AppearanceGenerationStatus != "" {
+		reason = fmt.Sprintf("has appearance status %q", annotation.AppearanceGenerationStatus)
+	}
+	if len(annotation.AppearanceGenerationBlockers) > 0 {
+		reason = fmt.Sprintf("%s with blockers %v", reason, annotation.AppearanceGenerationBlockers)
+	}
+	if annotation.Subtype != "" {
+		return fmt.Sprintf("annotation %d subtype %q %s", annotation.Index, annotation.Subtype, reason)
+	}
+	return fmt.Sprintf("annotation %d %s", annotation.Index, reason)
 }

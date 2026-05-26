@@ -566,22 +566,33 @@ func TestPypdfCorpusPageAnnotations(t *testing.T) {
 		t.Fatalf("Annotations() len = %d, want 6", len(annotations))
 	}
 	assertAnnotation(t, annotations[0], Annotation{
-		Kind:     "Text",
-		Contents: "Note in second paragraph",
-		Title:    "moose",
-		Status:   "approximate_supported",
-		Rect:     []float64{270.75, 596.25, 294.75, 620.25},
+		Kind:               "Text",
+		Contents:           "Note in second paragraph",
+		Title:              "moose",
+		Status:             "approximate_supported",
+		ObjectNumber:       23,
+		ObjectGeneration:   0,
+		HasObjectReference: true,
+		Rect:               []float64{270.75, 596.25, 294.75, 620.25},
+		Color:              []float64{1, 1, 0},
 	})
 	assertAnnotation(t, annotations[1], Annotation{
-		Kind:     "Popup",
-		Status:   "unsupported",
-		Blockers: []string{"unsupported_subtype"},
+		Kind:               "Popup",
+		Status:             "unsupported",
+		Blockers:           []string{"unsupported_subtype"},
+		ObjectNumber:       24,
+		HasObjectReference: true,
+		Rect:               []float64{294.75, 446.25, 494.75, 596.25},
 	})
 	assertAnnotation(t, annotations[2], Annotation{
-		Kind:   "Highlight",
-		Title:  "moose",
-		Status: "approximate_supported",
-		Rect:   []float64{176, 557, 203, 568},
+		Kind:               "Highlight",
+		Title:              "moose",
+		Status:             "approximate_supported",
+		ObjectNumber:       26,
+		HasObjectReference: true,
+		Rect:               []float64{176, 557, 203, 568},
+		Color:              []float64{1, 1, 0},
+		QuadPointsCount:    1,
 	})
 	if annotations[4].Kind != "Text" || annotations[4].Title != "moose" {
 		t.Fatalf("annotation 4 = %+v", annotations[4])
@@ -650,6 +661,9 @@ func TestPypdfCorpusSetAnnotationContentsRegeneratesSupportedAppearance(t *testi
 		if annotations[index].Contents != "updated" {
 			t.Fatalf("annotation %d contents = %q", index, annotations[index].Contents)
 		}
+		if !annotations[index].HasAppearance {
+			t.Fatalf("annotation %d HasAppearance = false, want regenerated appearance metadata", index)
+		}
 	}
 }
 
@@ -660,8 +674,14 @@ func TestPypdfCorpusSetAnnotationContentsRejectsUnsupportedPopup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, index := range []int{1, 3, 5} {
-		if _, _, err := doc.SetAnnotationContents(index, "updated", AnnotationContentsEditOptions{RegenerateAppearance: true}); !errors.Is(err, ErrUnsupported) {
+		_, _, err := doc.SetAnnotationContents(index, "updated", AnnotationContentsEditOptions{RegenerateAppearance: true})
+		if !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("SetAnnotationContents(%d) error = %v, want ErrUnsupported", index, err)
+		}
+		for _, want := range []string{`subtype "Popup"`, `appearance status "unsupported"`, `unsupported_subtype`} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("SetAnnotationContents(%d) error = %v, want exact blocker detail %q", index, err, want)
+			}
 		}
 	}
 }
@@ -676,6 +696,15 @@ func assertAnnotation(t *testing.T, got Annotation, want Annotation) {
 	}
 	if len(want.Rect) > 0 && !sameFloat64s(got.Rect, want.Rect) {
 		t.Fatalf("annotation rect = %v, want %v", got.Rect, want.Rect)
+	}
+	if len(want.Color) > 0 && !sameFloat64s(got.Color, want.Color) {
+		t.Fatalf("annotation color = %v, want %v", got.Color, want.Color)
+	}
+	if want.HasObjectReference && (!got.HasObjectReference || got.ObjectNumber != want.ObjectNumber || got.ObjectGeneration != want.ObjectGeneration) {
+		t.Fatalf("annotation object reference = %v %d %d, want %v %d %d", got.HasObjectReference, got.ObjectNumber, got.ObjectGeneration, want.HasObjectReference, want.ObjectNumber, want.ObjectGeneration)
+	}
+	if want.QuadPointsCount > 0 && got.QuadPointsCount != want.QuadPointsCount {
+		t.Fatalf("annotation quad points count = %d, want %d", got.QuadPointsCount, want.QuadPointsCount)
 	}
 }
 

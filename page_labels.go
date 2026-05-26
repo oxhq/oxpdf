@@ -19,15 +19,7 @@ func (d *Document) PageLabels() ([]string, error) {
 		return labels, nil
 	}
 	objects := parseIndirectObjects(d.input)
-	object, ok := indirectObjectByNumber(objects, catalog.PageLabels.Number, catalog.PageLabels.Generation)
-	if !ok {
-		return nil, unsupported("page labels object is missing")
-	}
-	dict, ok := objectDictionary(object.body)
-	if !ok {
-		return nil, unsupported("page labels object is not a dictionary")
-	}
-	nums, err := parsePageLabelNums(dict)
+	nums, err := collectPageLabelNums(objects, *catalog.PageLabels, map[objectRef]bool{})
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +34,37 @@ func (d *Document) PageLabels() ([]string, error) {
 		labels[i] = spec.labelFor(i - startIndex)
 	}
 	return labels, nil
+}
+
+func collectPageLabelNums(objects []indirectObject, ref ObjectReference, seen map[objectRef]bool) ([]pageLabelNum, error) {
+	key := objectRef{number: ref.Number, gen: ref.Generation}
+	if seen[key] {
+		return nil, unsupported(fmt.Sprintf("page label number tree cycle at %d %d R", ref.Number, ref.Generation))
+	}
+	seen[key] = true
+	object, ok := indirectObjectByNumber(objects, ref.Number, ref.Generation)
+	if !ok {
+		return nil, unsupported(fmt.Sprintf("page labels node %d %d R is missing", ref.Number, ref.Generation))
+	}
+	dict, ok := objectDictionary(object.body)
+	if !ok {
+		return nil, unsupported(fmt.Sprintf("page labels node %d is not a dictionary", object.number))
+	}
+	nums, err := parsePageLabelNums(dict)
+	if err != nil {
+		return nil, err
+	}
+	for _, kid := range directReferenceArray(dict, "Kids") {
+		kidNums, err := collectPageLabelNums(objects, kid, seen)
+		if err != nil {
+			return nil, err
+		}
+		nums = append(nums, kidNums...)
+	}
+	sort.SliceStable(nums, func(i, j int) bool {
+		return nums[i].index < nums[j].index
+	})
+	return nums, nil
 }
 
 type pageLabelNum struct {

@@ -89,6 +89,67 @@ func TestFindTextMapsPageAndExtractsTextBeyondFirstPage(t *testing.T) {
 	}
 }
 
+func TestReplaceTextOccurrenceSelectsExactMatchIndex(t *testing.T) {
+	doc, err := OpenBytes(multiPageTextPDF("Repeated", "Repeated"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := doc.ReplaceTextOccurrence("Repeated", "Changed", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMatches, err := reopened.FindText("Repeated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(oldMatches) != 1 || oldMatches[0].Page != 0 {
+		t.Fatalf("FindText(old) = %+v, want one match on page 0", oldMatches)
+	}
+	newMatches, err := reopened.FindText("Changed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newMatches) != 1 || newMatches[0].Page != 1 {
+		t.Fatalf("FindText(new) = %+v, want one match on page 1", newMatches)
+	}
+}
+
+func TestReplaceTextOccurrenceInvalidIndexesFailClosed(t *testing.T) {
+	doc, err := OpenBytes(textPDF("Only once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []int{-1, 1} {
+		if _, err := doc.ReplaceTextOccurrence("Only once", "Changed", index); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("ReplaceTextOccurrence(index %d) error = %v, want ErrUnsupported", index, err)
+		}
+	}
+}
+
+func TestReplaceTextOccurrenceRejectsRemovalShape(t *testing.T) {
+	doc, err := OpenBytes(textPDF("Only once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ReplaceTextOccurrence("Only once", "", 0); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("ReplaceTextOccurrence(empty replacement) error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestRemoveTextFailsClosed(t *testing.T) {
+	doc, err := OpenBytes(textPDF("Remove me"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.RemoveText("Remove me"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("RemoveText() error = %v, want ErrUnsupported", err)
+	}
+}
+
 func TestLocalPageTextFailsClosedForContentsArrays(t *testing.T) {
 	input := textPDF("Array contents")
 	input = bytes.Replace(input, []byte("/Contents 4 0 R"), []byte("/Contents [4 0 R]"), 1)

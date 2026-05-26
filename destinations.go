@@ -13,6 +13,8 @@ type NamedDestination struct {
 	PageIndex *int
 	Kind      string
 	Left      *float64
+	Bottom    *float64
+	Right     *float64
 	Top       *float64
 	Zoom      *float64
 	Status    string
@@ -166,7 +168,7 @@ func resolveNamedDestination(objects []indirectObject, name string, ref objectRe
 
 func parseDestinationArray(name string, input []byte, pageIndexes map[objectRef]int) (NamedDestination, error) {
 	fields := bytes.Fields(input)
-	if len(fields) < 5 || string(fields[2]) != "R" {
+	if len(fields) < 4 || string(fields[2]) != "R" {
 		return NamedDestination{}, unsupported(fmt.Sprintf("named destination %q has unsupported destination array", name))
 	}
 	pageRef, ok := parsePDFRef(bytes.Join(fields[:3], []byte(" ")))
@@ -185,7 +187,47 @@ func parseDestinationArray(name string, input []byte, pageIndexes map[objectRef]
 		destination.Status = "unsupported"
 		destination.Blockers = append(destination.Blockers, "page_reference_not_found")
 	}
-	if kind != "XYZ" {
+	switch kind {
+	case "Fit":
+		return destination, nil
+	case "FitH":
+		if len(fields) > 4 && string(fields[4]) != "null" {
+			if value, ok := parsePDFNumber(fields[4]); ok {
+				destination.Top = floatPtr(value)
+			}
+		}
+		return destination, nil
+	case "FitV":
+		if len(fields) > 4 && string(fields[4]) != "null" {
+			if value, ok := parsePDFNumber(fields[4]); ok {
+				destination.Left = floatPtr(value)
+			}
+		}
+		return destination, nil
+	case "FitR":
+		if len(fields) > 4 && string(fields[4]) != "null" {
+			if value, ok := parsePDFNumber(fields[4]); ok {
+				destination.Left = floatPtr(value)
+			}
+		}
+		if len(fields) > 5 && string(fields[5]) != "null" {
+			if value, ok := parsePDFNumber(fields[5]); ok {
+				destination.Bottom = floatPtr(value)
+			}
+		}
+		if len(fields) > 6 && string(fields[6]) != "null" {
+			if value, ok := parsePDFNumber(fields[6]); ok {
+				destination.Right = floatPtr(value)
+			}
+		}
+		if len(fields) > 7 && string(fields[7]) != "null" {
+			if value, ok := parsePDFNumber(fields[7]); ok {
+				destination.Top = floatPtr(value)
+			}
+		}
+		return destination, nil
+	case "XYZ":
+	default:
 		destination.Status = "unsupported"
 		destination.Blockers = append(destination.Blockers, "unsupported_destination_kind")
 		return destination, nil

@@ -138,6 +138,77 @@ func TestDecodedStreamIndexOutOfRange(t *testing.T) {
 	}
 }
 
+func TestImageXObjectsExtractsDCTPassThroughBytesAndMetadata(t *testing.T) {
+	image := []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0xff, 0xd9}
+	doc, err := OpenBytes(imageXObjectPDF("/Filter /DCTDecode ", image))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := doc.ImageXObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("ImageXObjects() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if got.ObjectNumber != 5 || got.StreamIndex != 1 {
+		t.Fatalf("image object/index = %d/%d, want 5/1", got.ObjectNumber, got.StreamIndex)
+	}
+	if got.Width != 2 || got.Height != 1 || got.BitsPerComponent != 8 || got.ColorSpace != "DeviceRGB" {
+		t.Fatalf("image metadata = %+v, want 2x1 DeviceRGB bpc 8", got)
+	}
+	if got.Filter != "DCTDecode" || got.Extension != "jpg" || !got.PassThrough {
+		t.Fatalf("image filter metadata = %+v, want DCTDecode jpg pass-through", got)
+	}
+	if !bytes.Equal(got.Content, image) {
+		t.Fatalf("image content = %v, want %v", got.Content, image)
+	}
+	got.Content[0] = 0
+	again, err := doc.ImageXObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again[0].Content, image) {
+		t.Fatalf("ImageXObjects returned mutable backing bytes: %v", again[0].Content)
+	}
+}
+
+func TestImageXObjectsExtractsFlateRawBytesAndMetadata(t *testing.T) {
+	raw := []byte{0x10, 0x20, 0x30}
+	doc, err := OpenBytes(imageXObjectPDF("/Filter /FlateDecode ", zlibCompress(t, raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := doc.ImageXObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("ImageXObjects() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if !bytes.Equal(got.Content, raw) {
+		t.Fatalf("Flate image content = %v, want %v", got.Content, raw)
+	}
+	if got.Filter != "FlateDecode" || got.Extension != "raw" || got.PassThrough {
+		t.Fatalf("Flate image filter metadata = %+v, want raw decoded bytes", got)
+	}
+}
+
+func TestImageXObjectsUnsupportedFilterFailsClosed(t *testing.T) {
+	doc, err := OpenBytes(imageXObjectPDF("/Filter /JPXDecode ", []byte("jp2 bytes")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := doc.ImageXObjects(); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("ImageXObjects(JPXDecode) error = %v, want ErrUnsupported", err)
+	}
+}
+
 func findStreamByFilter(streams []Stream, filter string) (Stream, bool) {
 	for _, stream := range streams {
 		if stream.Filter == filter {
@@ -153,6 +224,16 @@ func singleStreamPDF(extraDict string, content []byte) []byte {
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R >>",
 		"<< "+extraDict+"/Length "+itoa(len(content))+" >>\nstream\n"+string(content)+"\nendstream",
+	)
+}
+
+func imageXObjectPDF(extraDict string, content []byte) []byte {
+	return pdfObjects(
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>",
+		"<< /Length 12 >>\nstream\nq /Im1 Do Q\nendstream",
+		"<< /Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 "+extraDict+"/Length "+itoa(len(content))+" >>\nstream\n"+string(content)+"\nendstream",
 	)
 }
 

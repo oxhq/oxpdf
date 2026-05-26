@@ -22,6 +22,21 @@ type TextEditability struct {
 	UnsupportedReasons   []string
 }
 
+var verifiedReplacementInvariants = []string{
+	"reparse",
+	"old-gone",
+	"new-selectable",
+	"page-count-unchanged",
+	"no-fallback",
+}
+
+var verifiedScopedReplacementInvariants = []string{
+	"reparse",
+	"new-selectable",
+	"page-count-unchanged",
+	"no-fallback",
+}
+
 // FindText returns selectable text nodes that exactly match text.
 func (d *Document) FindText(text string) ([]TextMatch, error) {
 	if d == nil {
@@ -268,21 +283,84 @@ func (d *Document) ReplaceText(oldText, newText string) ([]byte, error) {
 	if d == nil {
 		return nil, unsupported("missing document")
 	}
+	return d.replaceText(pdfapi.TextSelector{Text: oldText}, newText, verifiedReplacementInvariants)
+}
+
+// ReplaceTextOccurrence performs a verified selectable-text rewrite for one
+// zero-based exact text occurrence.
+func (d *Document) ReplaceTextOccurrence(oldText, newText string, matchIndex int) ([]byte, error) {
+	if d == nil {
+		return nil, unsupported("missing document")
+	}
+	if oldText == "" {
+		return nil, unsupported("text occurrence replacement requires non-empty old text")
+	}
+	if newText == "" {
+		return nil, unsupported("text occurrence replacement requires non-empty replacement text")
+	}
+	if matchIndex < 0 {
+		return nil, unsupported("text occurrence replacement match index cannot be negative")
+	}
+	nodes, err := pdfapi.QueryText(d.input, pdfapi.TextSelector{Text: oldText}, d.options)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
+	if matchIndex >= len(nodes) {
+		return nil, unsupported("text occurrence replacement match index out of range")
+	}
+	existingNew, err := pdfapi.QueryText(d.input, pdfapi.TextSelector{Text: newText}, d.options)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
+	out, err := d.replaceText(
+		pdfapi.TextSelector{Text: oldText, MatchIndex: &matchIndex},
+		newText,
+		verifiedScopedReplacementInvariants,
+	)
+	if err != nil {
+		return nil, err
+	}
+	reopened, err := OpenBytes(out)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
+	remainingOld, err := reopened.FindText(oldText)
+	if err != nil {
+		return nil, err
+	}
+	if len(remainingOld) != len(nodes)-1 {
+		return nil, unsupported("text occurrence replacement did not remove exactly one selected old occurrence")
+	}
+	selectableNew, err := reopened.FindText(newText)
+	if err != nil {
+		return nil, err
+	}
+	if len(selectableNew) != len(existingNew)+1 {
+		return nil, unsupported("text occurrence replacement did not add exactly one selected replacement occurrence")
+	}
+	return out, nil
+}
+
+// RemoveText fails closed until the backing parser exposes a removal-specific
+// verification contract. Replacing with empty text would not prove selectable
+// replacement text.
+func (d *Document) RemoveText(text string) ([]byte, error) {
+	if d == nil {
+		return nil, unsupported("missing document")
+	}
+	return nil, unsupported("verified text removal is not supported")
+}
+
+func (d *Document) replaceText(selector pdfapi.TextSelector, newText string, invariants []string) ([]byte, error) {
 	out, _, _, err := pdfapi.EditText(
 		d.input,
-		pdfapi.TextSelector{Text: oldText},
+		selector,
 		pdfapi.TextReplacement{Replace: newText},
 		pdfapi.Options{
 			Password:      d.options.Password,
 			SignatureMode: d.options.SignatureMode,
 			Rewrite:       pdfapi.RewriteModeCanonical,
-			Verify: []string{
-				"reparse",
-				"old-gone",
-				"new-selectable",
-				"page-count-unchanged",
-				"no-fallback",
-			},
+			Verify:        invariants,
 		},
 	)
 	if err != nil {

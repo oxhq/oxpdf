@@ -64,6 +64,47 @@ func TestPypdfCorpusNamedDestinationsEmpty(t *testing.T) {
 	}
 }
 
+func TestNamedDestinationsSyntheticDestinationKinds(t *testing.T) {
+	doc, err := OpenBytes(syntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R /Names 5 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+		[]byte("<< /Dests 6 0 R >>"),
+		[]byte("<< /Dests 6 0 R >>"),
+		[]byte("<< /Names [(fit) 7 0 R (fith) 8 0 R (fitv) 9 0 R (fitr) 10 0 R (unknown) 11 0 R] >>"),
+		[]byte("<< /D [3 0 R /Fit] >>"),
+		[]byte("<< /D [3 0 R /FitH 700] >>"),
+		[]byte("<< /D [3 0 R /FitV 42] >>"),
+		[]byte("<< /D [3 0 R /FitR 10 20 300 400] >>"),
+		[]byte("<< /D [3 0 R /FitB] >>"),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	destinations, err := doc.NamedDestinations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDestinationStatus(t, destinations, "fit", "Fit", "supported")
+	fith := assertDestinationStatus(t, destinations, "fith", "FitH", "supported")
+	if fith.Top == nil || *fith.Top != 700 {
+		t.Fatalf("FitH Top = %v, want 700", fith.Top)
+	}
+	fitv := assertDestinationStatus(t, destinations, "fitv", "FitV", "supported")
+	if fitv.Left == nil || *fitv.Left != 42 {
+		t.Fatalf("FitV Left = %v, want 42", fitv.Left)
+	}
+	fitr := assertDestinationStatus(t, destinations, "fitr", "FitR", "supported")
+	if fitr.Left == nil || *fitr.Left != 10 || fitr.Bottom == nil || *fitr.Bottom != 20 || fitr.Right == nil || *fitr.Right != 300 || fitr.Top == nil || *fitr.Top != 400 {
+		t.Fatalf("FitR coordinates = %+v, want left/bottom/right/top", fitr)
+	}
+	unknown := assertDestinationStatus(t, destinations, "unknown", "FitB", "unsupported")
+	if !sameStrings(unknown.Blockers, []string{"unsupported_destination_kind"}) {
+		t.Fatalf("unknown blockers = %v", unknown.Blockers)
+	}
+}
+
 func assertNamedDestination(t *testing.T, destinations []NamedDestination, name string, page int, kind string, left, top float64) {
 	t.Helper()
 	for _, destination := range destinations {
@@ -88,4 +129,19 @@ func assertNamedDestination(t *testing.T, destinations []NamedDestination, name 
 		return
 	}
 	t.Fatalf("destination %q not found in %+v", name, destinations)
+}
+
+func assertDestinationStatus(t *testing.T, destinations []NamedDestination, name string, kind string, status string) NamedDestination {
+	t.Helper()
+	for _, destination := range destinations {
+		if destination.Name != name {
+			continue
+		}
+		if destination.Kind != kind || destination.Status != status {
+			t.Fatalf("%s = %+v, want kind %q status %q", name, destination, kind, status)
+		}
+		return destination
+	}
+	t.Fatalf("destination %q not found in %+v", name, destinations)
+	return NamedDestination{}
 }
