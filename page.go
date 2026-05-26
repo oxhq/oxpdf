@@ -54,45 +54,116 @@ func (p *Page) Rotation() int {
 	if p == nil || p.doc == nil {
 		return 0
 	}
-	dict, ok := p.pageDictionary()
+	page, ok := p.pageObject()
 	if !ok {
 		return 0
 	}
-	return parsePageRotation(p.doc.input, dict)
+	return pageTreeRotation(p.doc.input, page)
 }
 
 func (p *Page) box(name string) Rectangle {
 	if p == nil || p.doc == nil {
 		return Rectangle{}
 	}
-	dict, ok := p.pageDictionary()
+	page, ok := p.pageObject()
 	if !ok {
 		return Rectangle{}
 	}
-	if rect, ok := parsePageBox(dict, name); ok {
-		return rect
-	}
-	if name != "MediaBox" && name != "CropBox" {
-		if rect, ok := parsePageBox(dict, "CropBox"); ok {
-			return rect
-		}
-	}
-	if rect, ok := parsePageBox(dict, "MediaBox"); ok {
-		return rect
-	}
-	return Rectangle{}
+	return pageTreeBox(p.doc.input, page, name)
 }
 
 func (p *Page) pageDictionary() ([]byte, bool) {
-	pages := parsePageDictionaries(p.doc.input)
-	if p.index < 0 || p.index >= len(pages) {
+	page, ok := p.pageObject()
+	if !ok {
 		return nil, false
+	}
+	return page.dict, true
+}
+
+func (p *Page) pageObject() (pageObject, bool) {
+	pages := parsePageObjects(p.doc.input)
+	if p.index < 0 || p.index >= len(pages) {
+		return pageObject{}, false
 	}
 	return pages[p.index], true
 }
 
+type pageObject struct {
+	number int
+	gen    int
+	dict   []byte
+}
+
+func pageTreeBox(input []byte, page pageObject, name string) Rectangle {
+	if rect, ok := inheritedPageBox(input, page, name); ok {
+		return rect
+	}
+	if name != "MediaBox" && name != "CropBox" {
+		if rect, ok := inheritedPageBox(input, page, "CropBox"); ok {
+			return rect
+		}
+	}
+	if name != "MediaBox" {
+		if rect, ok := inheritedPageBox(input, page, "MediaBox"); ok {
+			return rect
+		}
+	}
+	return Rectangle{}
+}
+
+func inheritedPageBox(input []byte, page pageObject, name string) (Rectangle, bool) {
+	for _, dict := range pageInheritanceChain(input, page) {
+		if rect, ok := parsePageBox(dict, name); ok {
+			return rect, true
+		}
+	}
+	return Rectangle{}, false
+}
+
+func pageTreeRotation(input []byte, page pageObject) int {
+	for _, dict := range pageInheritanceChain(input, page) {
+		if raw, ok := directNameValue(dict, "Rotate"); ok {
+			return parsePageRotation(input, raw)
+		}
+	}
+	return 0
+}
+
+func pageInheritanceChain(input []byte, page pageObject) [][]byte {
+	objects := parseIndirectObjects(input)
+	chain := [][]byte{page.dict}
+	seen := map[int]bool{page.number: true}
+	current := page.dict
+	for {
+		ref := directReference(current, "Parent")
+		if ref == nil || seen[ref.Number] {
+			return chain
+		}
+		seen[ref.Number] = true
+		parent, ok := indirectObjectByNumber(objects, ref.Number, ref.Generation)
+		if !ok {
+			return chain
+		}
+		dict, ok := objectDictionary(parent.body)
+		if !ok {
+			return chain
+		}
+		chain = append(chain, dict)
+		current = dict
+	}
+}
+
 func parsePageDictionaries(input []byte) [][]byte {
-	var pages [][]byte
+	pageObjects := parsePageObjects(input)
+	pages := make([][]byte, 0, len(pageObjects))
+	for _, page := range pageObjects {
+		pages = append(pages, page.dict)
+	}
+	return pages
+}
+
+func parsePageObjects(input []byte) []pageObject {
+	var pages []pageObject
 	for _, object := range parseIndirectObjects(input) {
 		dictStart := bytes.Index(object.body, []byte("<<"))
 		if dictStart == -1 {
@@ -104,10 +175,54 @@ func parsePageDictionaries(input []byte) [][]byte {
 		}
 		dict := object.body[dictStart:dictEnd]
 		if hasPDFNameEntry(dict, "Type", "Page") {
-			pages = append(pages, dict)
+			pages = append(pages, pageObject{
+				number: object.number,
+				gen:    object.gen,
+				dict:   dict,
+			})
 		}
 	}
 	return pages
+}
+
+func parsePageBox(dict []byte, name string) (Rectangle, bool) {
+	value, ok := directNameValue(dict, name)
+	if !ok || len(value) == 0 || value[0] != '[' {
+		return Rectangle{}, false
+	}
+	closeAt := bytes.IndexByte(value, ']')
+	if closeAt == -1 {
+		return Rectangle{}, false
+	}
+	fields := bytes.Fields(value[1:closeAt])
+	if len(fields) < 4 {
+		return Rectangle{}, false
+	}
+	left, ok1 := parsePDFNumber(fields[0])
+	bottom, ok2 := parsePDFNumber(fields[1])
+	right, ok3 := parsePDFNumber(fields[2])
+	top, ok4 := parsePDFNumber(fields[3])
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		return Rectangle{}, false
+	}
+	return Rectangle{Left: left, Bottom: bottom, Right: right, Top: top}, true
+}
+
+func parsePageRotation(input, raw []byte) int {
+	raw = bytes.TrimSpace(raw)
+	rotationRe := regexp.MustCompile(`^([+-]?\d+)(?:\s+(\d+)\s+R\b)?`)
+	match := rotationRe.FindSubmatch(raw)
+	if len(match) == 0 {
+		return 0
+	}
+	rotation, err := strconv.Atoi(string(match[1]))
+	if err != nil {
+		return 0
+	}
+	if len(match) >= 3 && len(match[2]) > 0 {
+		return resolveIndirectInteger(input, rotation, atoiBytes(match[2]))
+	}
+	return normalizeRotation(rotation)
 }
 
 type indirectObject struct {
@@ -135,45 +250,6 @@ func parseIndirectObjects(input []byte) []indirectObject {
 		})
 	}
 	return objects
-}
-
-func parsePageBox(dict []byte, name string) (Rectangle, bool) {
-	value, ok := directNameValue(dict, name)
-	if !ok || len(value) == 0 || value[0] != '[' {
-		return Rectangle{}, false
-	}
-	closeAt := bytes.IndexByte(value, ']')
-	if closeAt == -1 {
-		return Rectangle{}, false
-	}
-	fields := bytes.Fields(value[1:closeAt])
-	if len(fields) < 4 {
-		return Rectangle{}, false
-	}
-	left, ok1 := parsePDFNumber(fields[0])
-	bottom, ok2 := parsePDFNumber(fields[1])
-	right, ok3 := parsePDFNumber(fields[2])
-	top, ok4 := parsePDFNumber(fields[3])
-	if !ok1 || !ok2 || !ok3 || !ok4 {
-		return Rectangle{}, false
-	}
-	return Rectangle{Left: left, Bottom: bottom, Right: right, Top: top}, true
-}
-
-func parsePageRotation(input, dict []byte) int {
-	rotationRe := regexp.MustCompile(`/Rotate\s+([+-]?\d+)(?:\s+(\d+)\s+R\b)?`)
-	match := rotationRe.FindSubmatch(dict)
-	if len(match) == 0 {
-		return 0
-	}
-	rotation, err := strconv.Atoi(string(match[1]))
-	if err != nil {
-		return 0
-	}
-	if len(match) >= 3 && len(match[2]) > 0 {
-		return resolveIndirectInteger(input, rotation, atoiBytes(match[2]))
-	}
-	return normalizeRotation(rotation)
 }
 
 func resolveIndirectInteger(input []byte, number, gen int) int {

@@ -124,6 +124,34 @@ func TestWriterInsertBlankPageRejectsOutOfRangeIndex(t *testing.T) {
 	}
 }
 
+func TestPageTreeInheritedBoxesAndRotation(t *testing.T) {
+	doc, err := OpenBytes(syntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 400 500] /CropBox [10 20 390 480] /Rotate 90 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R >>"),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := doc.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := page.MediaBox(), (Rectangle{Left: 0, Bottom: 0, Right: 400, Top: 500}); got != want {
+		t.Fatalf("MediaBox() = %+v, want %+v", got, want)
+	}
+	if got, want := page.CropBox(), (Rectangle{Left: 10, Bottom: 20, Right: 390, Top: 480}); got != want {
+		t.Fatalf("CropBox() = %+v, want %+v", got, want)
+	}
+	if got, want := page.TrimBox(), (Rectangle{Left: 10, Bottom: 20, Right: 390, Top: 480}); got != want {
+		t.Fatalf("TrimBox() = %+v, want inherited CropBox %+v", got, want)
+	}
+	if got := page.Rotation(); got != 90 {
+		t.Fatalf("Rotation() = %d, want 90", got)
+	}
+}
+
 func TestWriterBlankPageEdgeCases(t *testing.T) {
 	w := NewWriter()
 	if err := w.InsertBlankPage(0, PageSize{Width: -1, Height: 0}); err != nil {

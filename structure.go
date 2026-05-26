@@ -122,6 +122,9 @@ func (d *Document) Xref() Xref {
 func parseTrailer(input []byte) (Trailer, bool) {
 	dict, ok := lastTrailerDictionary(input)
 	if !ok {
+		dict, ok = lastXrefStreamDictionary(input)
+	}
+	if !ok {
 		return Trailer{}, false
 	}
 	trailer := Trailer{
@@ -134,6 +137,66 @@ func parseTrailer(input []byte) (Trailer, bool) {
 		ID:      directIDArray(dict),
 	}
 	return trailer, trailer.Size > 0 || trailer.Root != nil || trailer.Info != nil
+}
+
+func lastXrefStreamDictionary(input []byte) ([]byte, bool) {
+	if dict, ok := xrefStreamDictionaryAtStartxref(input); ok {
+		return dict, true
+	}
+	for i := len(input) - 1; i >= 0; i-- {
+		if input[i] != '<' || i+1 >= len(input) || input[i+1] != '<' {
+			continue
+		}
+		dictEnd, ok := scanDictionaryEnd(input, i)
+		if !ok || !hasPDFNameEntry(input[i:dictEnd], "Type", "XRef") {
+			continue
+		}
+		if streamAt := bytes.Index(input[dictEnd:], []byte("stream")); streamAt != -1 {
+			return input[i:dictEnd], true
+		}
+	}
+	return nil, false
+}
+
+func xrefStreamDictionaryAtStartxref(input []byte) ([]byte, bool) {
+	offset, ok := lastStartxrefOffset(input)
+	if !ok || offset < 0 || offset >= len(input) {
+		return nil, false
+	}
+	dictStartRel := bytes.Index(input[offset:], []byte("<<"))
+	if dictStartRel == -1 {
+		return nil, false
+	}
+	dictStart := offset + dictStartRel
+	dictEnd, ok := scanDictionaryEnd(input, dictStart)
+	if !ok {
+		return nil, false
+	}
+	dict := input[dictStart:dictEnd]
+	if !hasPDFNameEntry(dict, "Type", "XRef") {
+		return nil, false
+	}
+	return dict, true
+}
+
+func lastStartxrefOffset(input []byte) (int, bool) {
+	at := bytes.LastIndex(input, []byte("startxref"))
+	if at == -1 {
+		return 0, false
+	}
+	raw := bytes.TrimSpace(input[at+len("startxref"):])
+	end := 0
+	for end < len(raw) && raw[end] >= '0' && raw[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(string(raw[:end]))
+	if err != nil {
+		return 0, false
+	}
+	return value, true
 }
 
 func lastTrailerDictionary(input []byte) ([]byte, bool) {
