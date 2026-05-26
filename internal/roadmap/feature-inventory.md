@@ -23,8 +23,9 @@ it is rewritten as user-facing documentation.
 
 ## Writer And Pages
 
-- Implemented first: `NewWriter`, `AddBlankPage`, `Bytes` for canonical blank
-  PDFs with parse-after-write tests.
+- Implemented first: `NewWriter`, `AddBlankPage`, `InsertBlankPage`,
+  `WriteFile`, `Bytes`, and `ParsePageRange` for canonical blank PDFs and
+  page-range parsing with parse-after-write tests.
 - Guarded as unsupported: `AddPage`, `InsertPage`, `Append`.
 - pypdf evidence: `_writer.py`, `_page.py`, `tests/test_writer.py`,
   `tests/test_page.py`, and `tests/test_merger.py` define the eventual append,
@@ -55,6 +56,11 @@ it is rewritten as user-facing documentation.
 - `Fill()` and `SetCheckbox()` wrap released `binas` field edits with reparse,
   field-value, and NeedAppearances verification. Broader radio/button helpers
   still need explicit state semantics before public expansion.
+- `SetButtonChoice()` exposes exact-state button/radio changes while
+  `SetCheckbox()` is restricted to checkbox-like buttons with one non-Off state.
+- `SetAnnotationContents()` wraps released `binas` annotation contents edits for
+  annotations whose appearance status is `approximate_supported`; appearance
+  regeneration is explicit opt-in and verified.
 - Profile-level form and annotation boundaries are exposed through released
   `pdfapi.Profile`: field counts, fillable counts, annotation counts, editable
   annotation counts, and blocker counts.
@@ -64,8 +70,8 @@ it is rewritten as user-facing documentation.
 - pypdf evidence: `_doc_common.py`, `_writer.py`, `annotations/*`,
   `generic/_appearance_stream.py`, `tests/test_forms.py`, and
   `tests/test_annotations.py`.
-- Gap: OxPDF needs field/annotation appearance guardrails before exposing these
-  as a stable ergonomic API.
+- Gap: broader form/annotation appearance handling still needs more corpus proof
+  before exposing removal/flattening or richer widget/annotation mutation APIs.
 
 ## Filters, Images, And Security
 

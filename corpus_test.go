@@ -303,6 +303,59 @@ func TestPypdfCorpusFillTextFieldsAndCheckboxes(t *testing.T) {
 	assertFieldValue(t, unchecked, "gdpr", "Off")
 }
 
+func TestPypdfCorpusButtonChoiceAndCheckboxSemantics(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "libreoffice-form.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.SetCheckbox("female", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetCheckbox(radio) error = %v, want ErrUnsupported", err)
+	}
+
+	for _, state := range []string{"1", "2", "Off"} {
+		out, err := doc.SetButtonChoice("female", state)
+		if err != nil {
+			t.Fatalf("SetButtonChoice(%q) returned error: %v", state, err)
+		}
+		updated, err := OpenBytes(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertFieldValue(t, updated, "female", state)
+	}
+	if _, err := doc.SetButtonChoice("female", "Yes"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetButtonChoice(invalid state) error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestPypdfCorpusPdflatexFormUnicodeNameBoundary(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "pdflatex-forms.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := doc.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 3 {
+		t.Fatalf("Fields() len = %d, want 3", len(fields))
+	}
+	if fields[0].Name == "Name" || fields[1].Name == "Check" {
+		t.Fatalf("expected current backing field names to preserve undecoded PDF text: %+v", fields[:2])
+	}
+	if _, err := doc.Fill(map[string]string{"Name": "Ada"}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Fill(decoded name) error = %v, want ErrUnsupported", err)
+	}
+	if _, err := doc.SetCheckbox("Check", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetCheckbox(decoded name) error = %v, want ErrUnsupported", err)
+	}
+	if _, err := doc.SetButtonChoice("Submit", "Yes"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetButtonChoice(pushbutton) error = %v, want ErrUnsupported", err)
+	}
+}
+
 func assertFieldValue(t *testing.T, doc *Document, name string, want string) {
 	t.Helper()
 	fields, err := doc.Fields()
@@ -360,6 +413,81 @@ func TestPypdfCorpusPageAnnotations(t *testing.T) {
 	}
 	if annotations[4].Contents == "" || annotations[4].Contents == "note over \"kinds\"" {
 		t.Fatalf("annotation 4 contents were not decoded fully: %q", annotations[4].Contents)
+	}
+}
+
+func TestPypdfCorpusSetAnnotationContents(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "commented.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, verification, err := doc.SetAnnotationContents(0, "updated note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verification.ReparseOK || !verification.ContentsUpdated || !verification.PageUnchanged || verification.AppearanceRegenerated {
+		t.Fatalf("verification = %+v", verification)
+	}
+	updated, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := updated.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	annotations, err := page.Annotations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if annotations[0].Contents != "updated note" {
+		t.Fatalf("annotation 0 contents = %q", annotations[0].Contents)
+	}
+}
+
+func TestPypdfCorpusSetAnnotationContentsRegeneratesSupportedAppearance(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "commented.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []int{0, 2, 4} {
+		out, verification, err := doc.SetAnnotationContents(index, "updated", AnnotationContentsEditOptions{RegenerateAppearance: true})
+		if err != nil {
+			t.Fatalf("SetAnnotationContents(%d) returned error: %v", index, err)
+		}
+		if !verification.AppearanceRegenerated {
+			t.Fatalf("SetAnnotationContents(%d) verification = %+v, want regenerated appearance", index, verification)
+		}
+		updated, err := OpenBytes(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := updated.Page(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		annotations, err := page.Annotations()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if annotations[index].Contents != "updated" {
+			t.Fatalf("annotation %d contents = %q", index, annotations[index].Contents)
+		}
+	}
+}
+
+func TestPypdfCorpusSetAnnotationContentsRejectsUnsupportedPopup(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "commented.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []int{1, 3, 5} {
+		if _, _, err := doc.SetAnnotationContents(index, "updated", AnnotationContentsEditOptions{RegenerateAppearance: true}); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("SetAnnotationContents(%d) error = %v, want ErrUnsupported", index, err)
+		}
 	}
 }
 

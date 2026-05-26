@@ -3,6 +3,7 @@ package oxpdf
 import (
 	"bytes"
 	"fmt"
+	"os"
 )
 
 // PageSize describes a blank page size in PDF points.
@@ -35,6 +36,20 @@ func (w *Writer) AddBlankPage(size PageSize) {
 	w.blankPages = append(w.blankPages, size)
 }
 
+// InsertBlankPage inserts a blank page at index.
+func (w *Writer) InsertBlankPage(index int, size PageSize) error {
+	if w == nil || index < 0 || index > len(w.blankPages) {
+		return fmt.Errorf("%w: %d", ErrPageIndexOutOfRange, index)
+	}
+	if size.Width <= 0 || size.Height <= 0 {
+		size = PageSizeLetter
+	}
+	w.blankPages = append(w.blankPages, PageSize{})
+	copy(w.blankPages[index+1:], w.blankPages[index:])
+	w.blankPages[index] = size
+	return nil
+}
+
 // AddPage is reserved for copying existing pages once binas exposes page graph writing.
 func (w *Writer) AddPage(page *Page) error {
 	if page == nil {
@@ -59,6 +74,15 @@ func (w *Writer) Bytes() ([]byte, error) {
 		return nil, unsupported("writer requires at least one supported page operation")
 	}
 	return blankPDF(w.blankPages), nil
+}
+
+// WriteFile writes a canonical PDF to path.
+func (w *Writer) WriteFile(path string) error {
+	out, err := w.Bytes()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o666)
 }
 
 func blankPDF(pages []PageSize) []byte {
