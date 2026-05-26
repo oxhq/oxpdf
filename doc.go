@@ -63,6 +63,12 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 				}, nil
 			}
 		}
+		if actions, actionErr := javascriptActionsForInput(input); actionErr == nil && len(actions) > 0 {
+			return &Document{
+				input:   bytes.Clone(input),
+				options: apiOpts,
+			}, nil
+		}
 		return nil, classifyParseError(err)
 	}
 	root, ok := tree.Node(tree.Root)

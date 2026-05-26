@@ -76,6 +76,9 @@ it is rewritten as user-facing documentation.
 
 - Current profile reports encryption, signatures, XFA, xref streams, object
   streams, filters, CMaps, and related boundaries surfaced by binas.
+- `Streams()` and `ImageXObjectStreams()` expose read-only stream inventory:
+  stream byte spans, encoded/decoded length metadata, filter chains, decode
+  parameters, image-XObject markers, and binas filter-capability flags.
 - `Security()` exposes read-only encryption and signature boundary metadata
   without claiming signature trust, revocation, timestamp, or legal-grade
   validation.
@@ -84,6 +87,8 @@ it is rewritten as user-facing documentation.
 - pypdf evidence: `filters.py`, `_encryption.py`, `_crypt_providers/*`,
   image helpers in `_page.py`, `tests/test_filters.py`, `tests/test_images.py`,
   and `tests/test_encryption.py`.
+- Stream inventory does not claim image extraction or inline-image extraction;
+  image streams with pass-through filters are identified as boundaries only.
 - Encrypt, image extraction, image replacement, public-key encryption, AESV3,
   and legal-grade trust are not exposed.
 
@@ -97,9 +102,15 @@ it is rewritten as user-facing documentation.
   `XFASemantics()`, and `SetXFADatasetField()` expose static XFA dataset
   inspection/editing. Dynamic XFA rendering and ambiguous dataset edits fail
   closed.
+- `JavaScriptActions()` exposes direct JavaScript action dictionaries with
+  literal or hex `/JS` payloads. Broken-xref documents may open sparsely when
+  this metadata is readable, but no full document parse is claimed for those
+  sparse handles.
+- `Attachments()` exposes direct file-spec attachment payloads backed by
+  embedded-file streams with no filter or `FlateDecode`.
 - pypdf evidence: `xmp.py`, `_page_labels.py`, `_doc_common.py`,
   `_writer.py`, `generic/_files.py`, `tests/test_xmp.py`,
   `tests/test_page_labels.py`, and `tests/test_javascript.py`.
-- Page labels, outlines, named destinations, attachments, and JavaScript
-  actions remain roadmap items until object graph operations are exposed at a
-  stable backing boundary.
+- Page labels, outlines, named destinations, broad name-tree attachments, and
+  JavaScript name-tree actions remain roadmap items until object graph
+  operations are exposed at a stable backing boundary.

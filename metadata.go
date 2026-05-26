@@ -3,6 +3,7 @@ package oxpdf
 import (
 	"bytes"
 	"compress/flate"
+	"compress/zlib"
 	"encoding/hex"
 	"encoding/xml"
 	"io"
@@ -174,6 +175,10 @@ func extractXMPMetadataXMLAt(input []byte, dictStart int) (string, bool, error) 
 }
 
 func flateDecode(input []byte) ([]byte, error) {
+	if reader, err := zlib.NewReader(bytes.NewReader(input)); err == nil {
+		defer reader.Close()
+		return io.ReadAll(reader)
+	}
 	reader := flate.NewReader(bytes.NewReader(input))
 	defer reader.Close()
 	return io.ReadAll(reader)

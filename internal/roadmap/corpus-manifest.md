@@ -17,6 +17,10 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | `commented.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented.pdf` | annotations/edit/profile pass | Annotation listing/editing: 6 annotations, decoded UTF-16BE contents/title, status/blocker metadata, supported content edits for indexes 0/2/4. |
 | `commented-xmp.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented-xmp.pdf` | XMP pass | Read-only XMP packet extraction and `tiff:Artist` parsing. |
 | `issue-914-xmp-data.pdf` | `C:\Users\garae\Documents\pypdf\resources\issue-914-xmp-data.pdf` | XMP pass | Read-only XMP packet extraction and UTC-normalized `xmp:ModifyDate`. |
+| `issue-297.pdf` | `C:\Users\garae\Documents\pypdf\resources\issue-297.pdf` | JavaScript/direct action pass | Broken-xref fixture that still exposes one direct `/S /JavaScript` action with literal `/JS`; opens as a sparse metadata handle only. |
+| `attachment.pdf` | `C:\Users\garae\Documents\pypdf\resources\attachment.pdf` | attachment/direct filespec pass | Direct file attachment annotation through `/Filespec` -> `/EF /F` embedded file stream, zlib `FlateDecode`, decoded `jpeg.pdf` payload. |
+| `jpeg.pdf` | `C:\Users\garae\Documents\pypdf\resources\jpeg.pdf` | stream inventory pass | Five stream nodes, including DCT image XObject metadata marked `pass_through_image` without claiming extraction. |
+| `reportlab-inline-image.pdf` | `C:\Users\garae\Documents\pypdf\resources\reportlab-inline-image.pdf` | stream inventory pass | Editable reversible stream filter chain `[ASCII85Decode FlateDecode]`; no inline-image extraction claim. |
 | `box.pdf` | `C:\Users\garae\Documents\pypdf\resources\box.pdf` | pass | Page box fallback smoke: all boxes resolve to `[0 0 60 60]`, rotation `0`. |
 | `indirect-rotation.pdf` | `C:\Users\garae\Documents\pypdf\resources\indirect-rotation.pdf` | pass | Five pages with indirect `/Rotate` resolving to `0` and media box `[0 0 612 792]`. |
 | synthetic static XFA | OxPDF tests | XFA pass | XFA packet listing, static dataset field listing, template/dataset mappings, XML-escaped static dataset update. |
