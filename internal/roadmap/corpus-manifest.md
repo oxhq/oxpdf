@@ -10,8 +10,8 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | `two-different-pages.pdf` | `C:\Users\garae\Documents\pypdf\resources\two-different-pages.pdf` | pass | Multi-page traversal, `NumPages()==2`, `Page(0)` and `Page(1)`. |
 | `metadata.pdf` | `C:\Users\garae\Documents\pypdf\resources\metadata.pdf` | pass | Document info dictionary: title, author, subject, keywords, dates. |
 | `missing_info.pdf` | `C:\Users\garae\Documents\pypdf\resources\missing_info.pdf` | pass | Missing `/Info` is not an error; metadata should be empty. |
-| `encrypted-file.pdf` | `C:\Users\garae\Documents\pypdf\resources\encrypted-file.pdf` | unsupported | Structured encrypted/security refusal, no panic or generic parse failure. |
-| `r2-user-password.pdf` | `C:\Users\garae\Documents\pypdf\resources\encryption\r2-user-password.pdf` | unsupported | Named Standard Security boundary case for v0.6. |
+| `encrypted-file.pdf` | `C:\Users\garae\Documents\pypdf\resources\encrypted-file.pdf` | unsupported/security pass | Structured encrypted/security refusal, no panic or generic parse failure. |
+| `r2-user-password.pdf` | `C:\Users\garae\Documents\pypdf\resources\encryption\r2-user-password.pdf` | security pass | Named Standard Security metadata: Standard, V=1, R=2, Length=40; password decrypt remains later. |
 | `pdflatex-forms.pdf` | `C:\Users\garae\Documents\pypdf\resources\pdflatex-forms.pdf` | profile-only | AcroForm presence; Unicode field-name decoding still belongs in the backing API. |
 | `libreoffice-form.pdf` | `C:\Users\garae\Documents\pypdf\resources\libreoffice-form.pdf` | fields/fill/profile pass | Richer real-world form and annotation pressure: 8 fillable fields, 4 text fields, text fill, checkbox set/unset, 9 blocked annotations. |
 | `commented.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented.pdf` | annotations/edit/profile pass | Annotation listing/editing: 6 annotations, decoded UTF-16BE contents/title, status/blocker metadata, supported content edits for indexes 0/2/4. |

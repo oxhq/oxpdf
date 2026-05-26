@@ -43,6 +43,36 @@ func TestPypdfCorpusEncryptedFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPypdfCorpusSecurityMetadata(t *testing.T) {
+	resources := pypdfResources(t)
+	plainBytes, err := os.ReadFile(filepath.Join(resources, "hello-world.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := OpenBytes(plainBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if security := plain.Security(); security.Encrypted || security.Signed || security.Encryption.Present || security.Signature.Present {
+		t.Fatalf("plain Security() = %+v", security)
+	}
+
+	encryptedBytes, err := os.ReadFile(filepath.Join(resources, "encryption", "r2-user-password.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted := (&Document{input: encryptedBytes}).Security()
+	if !encrypted.Encrypted || !encrypted.Encryption.Present {
+		t.Fatalf("encrypted Security() = %+v", encrypted)
+	}
+	if encrypted.Encryption.Filter != "Standard" || encrypted.Encryption.V != 1 || encrypted.Encryption.R != 2 || encrypted.Encryption.Length != 40 {
+		t.Fatalf("encrypted Encryption = %+v", encrypted.Encryption)
+	}
+	if encrypted.Signed || encrypted.Signature.Present {
+		t.Fatalf("encrypted Signature = %+v", encrypted.Signature)
+	}
+}
+
 func TestPypdfCorpusMetadata(t *testing.T) {
 	resources := pypdfResources(t)
 	doc, err := OpenFile(filepath.Join(resources, "metadata.pdf"))

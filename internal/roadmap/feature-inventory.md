@@ -77,6 +77,9 @@ it is rewritten as user-facing documentation.
 
 - Current profile reports encryption, signatures, XFA, xref streams, object
   streams, filters, CMaps, and related boundaries surfaced by binas.
+- `Security()` exposes read-only encryption and signature boundary metadata
+  without claiming password decrypt, signature trust, revocation, timestamp, or
+  legal-grade validation.
 - pypdf evidence: `filters.py`, `_encryption.py`, `_crypt_providers/*`,
   image helpers in `_page.py`, `tests/test_filters.py`, `tests/test_images.py`,
   and `tests/test_encryption.py`.
