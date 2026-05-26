@@ -6,7 +6,8 @@
 
 - Opening and reader inspection APIs for `Open`, `OpenFile`, `OpenBytes`,
   document metadata, verified simple metadata writes, page geometry, validation,
-  profile summaries, trailers, catalogs, xref summaries, and strict parsing.
+  profile summaries, trailers, catalogs, xref summaries, simple/Flate
+  object-stream-backed page-tree navigation, and strict parsing.
 - Writer APIs for creating blank PDFs, inserting blank pages, writing bytes or
   files, and parsing page ranges.
 - Selectable text APIs for finding, page-scoped extraction, editability checks,

@@ -3,6 +3,7 @@ package oxpdf
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,6 +153,38 @@ func TestPageTreeInheritedBoxesAndRotation(t *testing.T) {
 	}
 }
 
+func TestPageTreeTraversesFlateObjectStreamPages(t *testing.T) {
+	doc, err := OpenBytes(objectStreamPageTreePDF(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.NumPages(); got != 2 {
+		t.Fatalf("NumPages() = %d, want 2", got)
+	}
+
+	first, err := doc.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := first.MediaBox(), (Rectangle{Left: 0, Bottom: 0, Right: 500, Top: 600}); got != want {
+		t.Fatalf("Page(0).MediaBox() = %+v, want %+v", got, want)
+	}
+	if got := first.Rotation(); got != 0 {
+		t.Fatalf("Page(0).Rotation() = %d, want 0", got)
+	}
+
+	second, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := second.MediaBox(), (Rectangle{Left: 0, Bottom: 0, Right: 300, Top: 400}); got != want {
+		t.Fatalf("Page(1).MediaBox() = %+v, want %+v", got, want)
+	}
+	if got := second.Rotation(); got != 90 {
+		t.Fatalf("Page(1).Rotation() = %d, want 90", got)
+	}
+}
+
 func TestWriterBlankPageEdgeCases(t *testing.T) {
 	w := NewWriter()
 	if err := w.InsertBlankPage(0, PageSize{Width: -1, Height: 0}); err != nil {
@@ -236,4 +269,25 @@ func sameInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+func objectStreamPageTreePDF(t *testing.T) []byte {
+	t.Helper()
+
+	page4 := []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] /Rotate 90 >>")
+	page5 := []byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 600] >>")
+	header := []byte(fmt.Sprintf("4 0 5 %d ", len(page4)+1))
+	objectStream := append([]byte{}, header...)
+	objectStream = append(objectStream, page4...)
+	objectStream = append(objectStream, '\n')
+	objectStream = append(objectStream, page5...)
+	compressed := zlibCompress(t, objectStream)
+
+	return syntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [5 0 R 4 0 R] /Count 2 >>"),
+		[]byte(fmt.Sprintf("<< /Type /ObjStm /N 2 /First %d /Filter /FlateDecode /Length %d >>\nstream\n", len(header), len(compressed))+
+			string(compressed)+
+			"\nendstream"),
+	)
 }

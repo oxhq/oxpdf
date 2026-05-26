@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // Rectangle describes a PDF rectangle in points.
@@ -163,8 +164,76 @@ func parsePageDictionaries(input []byte) [][]byte {
 }
 
 func parsePageObjects(input []byte) []pageObject {
+	objects := parseIndirectObjects(input)
+	if pages, ok := parsePageTreeObjects(input, objects); ok {
+		return pages
+	}
+	return parsePageObjectsFromList(objects)
+}
+
+func parsePageTreeObjects(input []byte, objects []indirectObject) ([]pageObject, bool) {
+	trailer, ok := parseTrailer(input)
+	if !ok || trailer.Root == nil {
+		return nil, false
+	}
+	catalog, ok := indirectObjectByNumber(objects, trailer.Root.Number, trailer.Root.Generation)
+	if !ok {
+		return nil, false
+	}
+	dict, ok := objectDictionary(catalog.body)
+	if !ok || !hasPDFNameEntry(dict, "Type", "Catalog") {
+		return nil, false
+	}
+	pagesRef := directReference(dict, "Pages")
+	if pagesRef == nil {
+		return nil, false
+	}
+	pages, ok := collectPageTreeObjects(objects, *pagesRef, map[objectRef]bool{})
+	if !ok || len(pages) == 0 {
+		return nil, false
+	}
+	return pages, true
+}
+
+func collectPageTreeObjects(objects []indirectObject, ref ObjectReference, seen map[objectRef]bool) ([]pageObject, bool) {
+	key := objectRef{number: ref.Number, gen: ref.Generation}
+	if seen[key] {
+		return nil, false
+	}
+	seen[key] = true
+	object, ok := indirectObjectByNumber(objects, ref.Number, ref.Generation)
+	if !ok {
+		return nil, false
+	}
+	dict, ok := objectDictionary(object.body)
+	if !ok {
+		return nil, false
+	}
+	if hasPDFNameEntry(dict, "Type", "Page") {
+		return []pageObject{{
+			number: object.number,
+			gen:    object.gen,
+			dict:   dict,
+		}}, true
+	}
+	kids := directReferenceArray(dict, "Kids")
+	if len(kids) == 0 {
+		return nil, false
+	}
 	var pages []pageObject
-	for _, object := range parseIndirectObjects(input) {
+	for _, kid := range kids {
+		kidPages, ok := collectPageTreeObjects(objects, kid, seen)
+		if !ok {
+			return nil, false
+		}
+		pages = append(pages, kidPages...)
+	}
+	return pages, true
+}
+
+func parsePageObjectsFromList(objects []indirectObject) []pageObject {
+	var pages []pageObject
+	for _, object := range objects {
 		dictStart := bytes.Index(object.body, []byte("<<"))
 		if dictStart == -1 {
 			continue
@@ -249,7 +318,107 @@ func parseIndirectObjects(input []byte) []indirectObject {
 			body:   input[bodyStart : bodyStart+endRel],
 		})
 	}
+	objects = append(objects, objectStreamIndirectObjects(objects)...)
 	return objects
+}
+
+func objectStreamIndirectObjects(objects []indirectObject) []indirectObject {
+	seen := make(map[objectRef]bool, len(objects))
+	for _, object := range objects {
+		seen[objectRef{number: object.number, gen: object.gen}] = true
+	}
+	var out []indirectObject
+	for _, object := range objects {
+		dict, ok := objectDictionary(object.body)
+		if !ok || !hasPDFNameEntry(dict, "Type", "ObjStm") {
+			continue
+		}
+		members := parseObjectStreamMembers(object, dict)
+		for _, member := range members {
+			key := objectRef{number: member.number, gen: member.gen}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, member)
+		}
+	}
+	return out
+}
+
+func parseObjectStreamMembers(object indirectObject, dict []byte) []indirectObject {
+	n := directInteger(dict, "N")
+	first := directInteger(dict, "First")
+	if n == nil || *n < 0 || first == nil || *first < 0 {
+		return nil
+	}
+	stream, ok := streamBytesAfterDictionary(object.body, dict)
+	if !ok {
+		return nil
+	}
+	decoded, ok := decodeObjectStreamBytes(dict, stream)
+	if !ok || *first > len(decoded) {
+		return nil
+	}
+	fields := strings.Fields(string(decoded[:*first]))
+	if len(fields) < *n*2 {
+		return nil
+	}
+	type memberHeader struct {
+		number int
+		offset int
+	}
+	headers := make([]memberHeader, 0, *n)
+	for i := 0; i < *n; i++ {
+		number, numberErr := strconv.Atoi(fields[i*2])
+		offset, offsetErr := strconv.Atoi(fields[i*2+1])
+		if numberErr != nil || offsetErr != nil || offset < 0 || *first+offset > len(decoded) {
+			return nil
+		}
+		headers = append(headers, memberHeader{number: number, offset: offset})
+	}
+	members := make([]indirectObject, 0, len(headers))
+	for i, header := range headers {
+		start := *first + header.offset
+		end := len(decoded)
+		if i+1 < len(headers) {
+			end = *first + headers[i+1].offset
+		}
+		if start > end {
+			return nil
+		}
+		body := bytes.TrimSpace(decoded[start:end])
+		if len(body) == 0 || bytes.Contains(body, []byte("stream")) {
+			continue
+		}
+		members = append(members, indirectObject{
+			number: header.number,
+			gen:    0,
+			body:   body,
+		})
+	}
+	return members
+}
+
+func decodeObjectStreamBytes(dict, stream []byte) ([]byte, bool) {
+	if decodeParms, ok := directNameValue(dict, "DecodeParms"); ok {
+		trimmed := bytes.TrimSpace(decodeParms)
+		if !bytes.HasPrefix(trimmed, []byte("null")) {
+			return nil, false
+		}
+	}
+	switch streamFilterName(dict) {
+	case "":
+		return bytes.Clone(stream), true
+	case "FlateDecode":
+		decoded, err := flateDecode(stream)
+		if err != nil {
+			return nil, false
+		}
+		return decoded, true
+	default:
+		return nil, false
+	}
 }
 
 func resolveIndirectInteger(input []byte, number, gen int) int {

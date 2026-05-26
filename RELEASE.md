@@ -63,3 +63,46 @@ go list -m github.com/oxhq/oxpdf@v0.1.0
 As of this document, the known lightweight local gate is `go test ./...` plus
 `go vet ./...`. Consumer, hosted CI, and release gates remain separate proof
 levels and must be completed explicitly before they are claimed.
+
+## P8.2/P9.3 Audit Stamp - 2026-05-26
+
+Current source checkout:
+
+- Local branch: `develop` at `8119e586bbde6baa0ac8c4ad37dba018d98011e8`.
+- GitHub default branch: `main`.
+- Remote heads: `develop` at `8119e586bbde6baa0ac8c4ad37dba018d98011e8`;
+  `main` at `b2eea0d070b58726ae95e5bdb629a02f91d36c11`.
+- Hosted CI: `develop` commit
+  `8119e586bbde6baa0ac8c4ad37dba018d98011e8` has a completed successful
+  GitHub Actions `CI` run:
+  `https://github.com/oxhq/oxpdf/actions/runs/26469102712`.
+
+Dynamic XFA boundary:
+
+- OxPDF is pinned to `github.com/oxhq/binas v0.1.1`, which resolves to
+  upstream tag commit `142c7e9a1d8cd0b41d66c6f3bd541b061f694e92`.
+- The current feasible XFA surface is static packet/dataset inspection and
+  verified static dataset field edits.
+- Dynamic XFA remains unsupported: renderer-dependent XFA semantics must keep
+  returning `ErrUnsupported` rather than claiming rendered or layout-aware form
+  behavior.
+
+Release artifact proof:
+
+- `git ls-remote --tags origin` returned no OxPDF tags.
+- `gh release list --repo oxhq/oxpdf --limit 20` returned no OxPDF releases.
+- `gh api repos/oxhq/oxpdf/releases --jq 'length'` returned `0`.
+- `go list -m -versions github.com/oxhq/oxpdf` returned no semver versions.
+- `go list -m -json github.com/oxhq/oxpdf@latest` resolves only the untagged
+  pseudo-version `v0.0.0-20260522184146-b2eea0d070b5` from `main`.
+
+Release remains blocked on a human-approved tag target. If `develop` is the
+approved release candidate, the smallest release command is:
+
+```powershell
+git tag -a v0.1.0 8119e586bbde6baa0ac8c4ad37dba018d98011e8 -m "oxpdf v0.1.0"
+```
+
+Do not run that command until the branch/tag decision is approved; follow with
+the tag push, release creation, and outside-repo module resolution proof before
+claiming release artifact proof.
