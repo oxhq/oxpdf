@@ -93,8 +93,17 @@ func TestXFADatasetFieldUpdateRejectsAmbiguousAndDynamicXFA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fields, err := doc.XFADatasetFields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 2 || fields[0].Path != "form.field" || fields[1].Path != "form.field" {
+		t.Fatalf("ambiguous XFADatasetFields() = %+v, want duplicate form.field paths", fields)
+	}
 	if _, _, err := doc.SetXFADatasetField("form.field", "new"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("SetXFADatasetField(ambiguous) error = %v, want ErrUnsupported", err)
+	} else if !strings.Contains(err.Error(), "ambiguous") || !strings.Contains(err.Error(), "2 matches") {
+		t.Fatalf("SetXFADatasetField(ambiguous) error = %v, want explicit ambiguous match count", err)
 	}
 
 	dynamic, err := OpenBytes(dynamicXFAPDF())

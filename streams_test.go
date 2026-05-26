@@ -63,6 +63,35 @@ func TestPypdfCorpusStreamInventoryEditableFilterChain(t *testing.T) {
 	}
 }
 
+func TestPypdfCorpusInlineImagesAreNotImageXObjectStreams(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "reportlab-inline-image.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if xobjects := doc.ImageXObjectStreams(); len(xobjects) != 0 {
+		t.Fatalf("ImageXObjectStreams() len = %d, want 0 for inline-image fixture", len(xobjects))
+	}
+	images, err := doc.InlineImages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("InlineImages() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if got.Width != 16 || got.Height != 16 || got.BitsPerComponent != 8 || got.ColorSpace != "DeviceRGB" {
+		t.Fatalf("inline image metadata = %+v, want 16x16 DeviceRGB bpc 8", got)
+	}
+	if !sameStrings(got.FilterChain, []string{"ASCII85Decode", "FlateDecode"}) || got.Extension != "raw" || got.PassThrough {
+		t.Fatalf("inline image filter metadata = %+v, want ASCII85+Flate raw decoded bytes", got)
+	}
+	if len(got.Content) != 16*16*3 {
+		t.Fatalf("inline image content len = %d, want %d", len(got.Content), 16*16*3)
+	}
+}
+
 func TestNilDocumentStreams(t *testing.T) {
 	var doc *Document
 	if streams := doc.Streams(); streams != nil {
@@ -209,6 +238,74 @@ func TestImageXObjectsUnsupportedFilterFailsClosed(t *testing.T) {
 	}
 }
 
+func TestInlineImagesExtractsSyntheticContentStreamImage(t *testing.T) {
+	raw := []byte{0x01, 0x02, 0x03}
+	doc, err := OpenBytes(inlineImagePDF("BI /W 1 /H 1 /CS /RGB /BPC 8 ID " + string(raw) + " EI"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	images, err := doc.InlineImages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("InlineImages() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if got.StreamIndex != 0 || got.Width != 1 || got.Height != 1 || got.BitsPerComponent != 8 || got.ColorSpace != "DeviceRGB" {
+		t.Fatalf("inline image metadata = %+v, want stream 0 1x1 DeviceRGB bpc 8", got)
+	}
+	if got.Filter != "" || len(got.FilterChain) != 0 || got.Extension != "raw" || got.PassThrough {
+		t.Fatalf("inline image filter metadata = %+v, want raw unfiltered image", got)
+	}
+	if !bytes.Equal(got.Content, raw) {
+		t.Fatalf("inline image content = %v, want %v", got.Content, raw)
+	}
+	got.Content[0] = 0
+	again, err := doc.InlineImages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again[0].Content, raw) {
+		t.Fatalf("InlineImages returned mutable backing bytes: %v", again[0].Content)
+	}
+}
+
+func TestInlineImagesAreSeparateFromImageXObjectStreams(t *testing.T) {
+	image := []byte{0xff, 0xd8, 0xff, 0xd9}
+	doc, err := OpenBytes(imageXObjectPDF("/Filter /DCTDecode ", image))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inline, err := doc.InlineImages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inline) != 0 {
+		t.Fatalf("InlineImages() len = %d, want 0 for image XObject-only PDF", len(inline))
+	}
+	xobjects, err := doc.ImageXObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(xobjects) != 1 {
+		t.Fatalf("ImageXObjects() len = %d, want 1", len(xobjects))
+	}
+}
+
+func TestInlineImagesUnsupportedImageFilterFailsClosed(t *testing.T) {
+	doc, err := OpenBytes(inlineImagePDF("BI /W 1 /H 1 /CS /RGB /BPC 8 /F /DCT ID not-jpeg EI"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := doc.InlineImages(); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("InlineImages(filtered inline image) error = %v, want ErrUnsupported", err)
+	}
+}
+
 func findStreamByFilter(streams []Stream, filter string) (Stream, bool) {
 	for _, stream := range streams {
 		if stream.Filter == filter {
@@ -225,6 +322,10 @@ func singleStreamPDF(extraDict string, content []byte) []byte {
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R >>",
 		"<< "+extraDict+"/Length "+itoa(len(content))+" >>\nstream\n"+string(content)+"\nendstream",
 	)
+}
+
+func inlineImagePDF(content string) []byte {
+	return singleStreamPDF("", []byte(content))
 }
 
 func imageXObjectPDF(extraDict string, content []byte) []byte {

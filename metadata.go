@@ -30,9 +30,16 @@ type Metadata struct {
 
 // XMPMetadata exposes read-only XMP packet data for common metadata workflows.
 type XMPMetadata struct {
-	RawXML     string
-	TIFFArtist []string
-	ModifyDate string
+	RawXML      string
+	Title       string
+	Creator     []string
+	Description string
+	CreateDate  string
+	CreatorTool string
+	Producer    string
+	Keywords    string
+	TIFFArtist  []string
+	ModifyDate  string
 }
 
 // XMPMetadata returns the document-level XMP metadata packet when present.
@@ -196,10 +203,39 @@ func parseXMPMetadata(raw string) XMPMetadata {
 		if !ok {
 			continue
 		}
+		applyXMPAttributes(&out, start.Attr)
 		switch start.Name.Local {
 		case "Artist":
 			if text, ok := readXMLElementText(decoder, start.Name); ok {
 				out.TIFFArtist = append(out.TIFFArtist, text)
+			}
+		case "title":
+			if values, ok := readXMLElementTextValues(decoder, start.Name); ok && len(values) > 0 {
+				out.Title = values[0]
+			}
+		case "creator":
+			if values, ok := readXMLElementTextValues(decoder, start.Name); ok {
+				out.Creator = append(out.Creator, values...)
+			}
+		case "description":
+			if values, ok := readXMLElementTextValues(decoder, start.Name); ok && len(values) > 0 {
+				out.Description = values[0]
+			}
+		case "CreateDate":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.CreateDate = normalizeXMPDate(text)
+			}
+		case "CreatorTool":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.CreatorTool = text
+			}
+		case "Producer":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.Producer = text
+			}
+		case "Keywords":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.Keywords = text
 			}
 		case "ModifyDate":
 			if text, ok := readXMLElementText(decoder, start.Name); ok {
@@ -208,6 +244,82 @@ func parseXMPMetadata(raw string) XMPMetadata {
 		}
 	}
 	return out
+}
+
+func applyXMPAttributes(out *XMPMetadata, attrs []xml.Attr) {
+	for _, attr := range attrs {
+		value := strings.TrimSpace(attr.Value)
+		if value == "" {
+			continue
+		}
+		switch attr.Name.Local {
+		case "title":
+			if out.Title == "" {
+				out.Title = value
+			}
+		case "creator":
+			out.Creator = append(out.Creator, value)
+		case "description":
+			if out.Description == "" {
+				out.Description = value
+			}
+		case "CreateDate":
+			if out.CreateDate == "" {
+				out.CreateDate = normalizeXMPDate(value)
+			}
+		case "CreatorTool":
+			if out.CreatorTool == "" {
+				out.CreatorTool = value
+			}
+		case "Producer":
+			if out.Producer == "" {
+				out.Producer = value
+			}
+		case "Keywords":
+			if out.Keywords == "" {
+				out.Keywords = value
+			}
+		case "ModifyDate":
+			if out.ModifyDate == "" {
+				out.ModifyDate = normalizeXMPDate(value)
+			}
+		}
+	}
+}
+
+func readXMLElementTextValues(decoder *xml.Decoder, name xml.Name) ([]string, bool) {
+	var values []string
+	var direct strings.Builder
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, false
+		}
+		switch t := token.(type) {
+		case xml.CharData:
+			direct.Write([]byte(t))
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "Alt", "Bag", "Seq":
+				continue
+			case "li":
+				if text, ok := readXMLElementText(decoder, t.Name); ok && text != "" {
+					values = append(values, text)
+				}
+			default:
+				if err := decoder.Skip(); err != nil {
+					return nil, false
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == name.Local {
+				if text := strings.TrimSpace(direct.String()); text != "" {
+					values = append([]string{text}, values...)
+				}
+				return values, true
+			}
+		}
+	}
 }
 
 func readXMLElementText(decoder *xml.Decoder, name xml.Name) (string, bool) {

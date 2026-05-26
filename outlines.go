@@ -5,6 +5,8 @@ import "fmt"
 // OutlineItem describes a flat, read-only outline item.
 type OutlineItem struct {
 	Index           int
+	Depth           int
+	ParentIndex     int
 	Title           string
 	DestinationName string
 	Status          string
@@ -33,35 +35,56 @@ func (d *Document) OutlineItems() ([]OutlineItem, error) {
 	if first == nil {
 		return nil, nil
 	}
-	var items []OutlineItem
-	seen := map[objectRef]bool{}
-	current := first
-	for current != nil {
-		key := objectRef{number: current.Number, gen: current.Generation}
-		if seen[key] {
-			return nil, unsupported(fmt.Sprintf("outline cycle at %d %d R", current.Number, current.Generation))
-		}
-		seen[key] = true
-		object, ok := indirectObjectByNumber(objects, current.Number, current.Generation)
-		if !ok {
-			return nil, unsupported(fmt.Sprintf("outline item %d %d R is missing", current.Number, current.Generation))
-		}
-		dict, ok := objectDictionary(object.body)
-		if !ok {
-			return nil, unsupported(fmt.Sprintf("outline item %d is not a dictionary", object.number))
-		}
-		item, err := parseOutlineItem(objects, dict, len(items))
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-		current = directReference(dict, "Next")
+	items, err := collectOutlineItems(objects, first, 0, -1, map[objectRef]bool{})
+	if err != nil {
+		return nil, err
 	}
 	return items, nil
 }
 
-func parseOutlineItem(objects []indirectObject, dict []byte, index int) (OutlineItem, error) {
-	item := OutlineItem{Index: index, Status: "supported"}
+func collectOutlineItems(objects []indirectObject, first *ObjectReference, depth, parentIndex int, seen map[objectRef]bool) ([]OutlineItem, error) {
+	var items []OutlineItem
+	if err := appendOutlineItems(objects, first, depth, parentIndex, seen, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func appendOutlineItems(objects []indirectObject, first *ObjectReference, depth, parentIndex int, seen map[objectRef]bool, items *[]OutlineItem) error {
+	current := first
+	for current != nil {
+		key := objectRef{number: current.Number, gen: current.Generation}
+		if seen[key] {
+			return unsupported(fmt.Sprintf("outline cycle at %d %d R", current.Number, current.Generation))
+		}
+		seen[key] = true
+		object, ok := indirectObjectByNumber(objects, current.Number, current.Generation)
+		if !ok {
+			return unsupported(fmt.Sprintf("outline item %d %d R is missing", current.Number, current.Generation))
+		}
+		dict, ok := objectDictionary(object.body)
+		if !ok {
+			return unsupported(fmt.Sprintf("outline item %d is not a dictionary", object.number))
+		}
+		item, err := parseOutlineItem(objects, dict, depth, parentIndex)
+		if err != nil {
+			return err
+		}
+		item.Index = len(*items)
+		*items = append(*items, item)
+		childFirst := directReference(dict, "First")
+		if childFirst != nil {
+			if err := appendOutlineItems(objects, childFirst, depth+1, item.Index, seen, items); err != nil {
+				return err
+			}
+		}
+		current = directReference(dict, "Next")
+	}
+	return nil
+}
+
+func parseOutlineItem(objects []indirectObject, dict []byte, depth, parentIndex int) (OutlineItem, error) {
+	item := OutlineItem{Depth: depth, ParentIndex: parentIndex, Status: "supported"}
 	title, err := outlineTitle(objects, dict)
 	if err != nil {
 		return OutlineItem{}, err
