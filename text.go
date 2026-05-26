@@ -2,6 +2,7 @@ package oxpdf
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/oxhq/binas/pkg/core"
@@ -20,6 +21,24 @@ type TextMatch struct {
 type TextEditability struct {
 	ReplaceTextSupported bool
 	UnsupportedReasons   []string
+}
+
+// TextRewriteMode selects the PDF writer strategy for verified text edits.
+type TextRewriteMode string
+
+const (
+	// TextRewriteCanonical rewrites through the canonical writer. This is the
+	// default and may inflate object streams into normal indirect objects.
+	TextRewriteCanonical TextRewriteMode = "canonical"
+	// TextRewritePreserveStructure asks the backing writer to preserve supported
+	// object-stream and xref-stream structure while still verifying selectable
+	// text after the edit.
+	TextRewritePreserveStructure TextRewriteMode = "preserve-structure"
+)
+
+// TextEditOptions configures verified text replacement.
+type TextEditOptions struct {
+	Rewrite TextRewriteMode
 }
 
 var verifiedReplacementInvariants = []string{
@@ -283,12 +302,27 @@ func (d *Document) ReplaceText(oldText, newText string) ([]byte, error) {
 	if d == nil {
 		return nil, unsupported("missing document")
 	}
-	return d.replaceText(pdfapi.TextSelector{Text: oldText}, newText, verifiedReplacementInvariants)
+	return d.replaceText(pdfapi.TextSelector{Text: oldText}, newText, verifiedReplacementInvariants, TextEditOptions{})
+}
+
+// ReplaceTextWithOptions performs a verified selectable-text rewrite using the
+// requested writer strategy.
+func (d *Document) ReplaceTextWithOptions(oldText, newText string, opts TextEditOptions) ([]byte, error) {
+	if d == nil {
+		return nil, unsupported("missing document")
+	}
+	return d.replaceText(pdfapi.TextSelector{Text: oldText}, newText, verifiedReplacementInvariants, opts)
 }
 
 // ReplaceTextOccurrence performs a verified selectable-text rewrite for one
 // zero-based exact text occurrence.
 func (d *Document) ReplaceTextOccurrence(oldText, newText string, matchIndex int) ([]byte, error) {
+	return d.ReplaceTextOccurrenceWithOptions(oldText, newText, matchIndex, TextEditOptions{})
+}
+
+// ReplaceTextOccurrenceWithOptions performs a verified selectable-text rewrite
+// for one zero-based exact text occurrence using the requested writer strategy.
+func (d *Document) ReplaceTextOccurrenceWithOptions(oldText, newText string, matchIndex int, opts TextEditOptions) ([]byte, error) {
 	if d == nil {
 		return nil, unsupported("missing document")
 	}
@@ -316,6 +350,7 @@ func (d *Document) ReplaceTextOccurrence(oldText, newText string, matchIndex int
 		pdfapi.TextSelector{Text: oldText, MatchIndex: &matchIndex},
 		newText,
 		verifiedScopedReplacementInvariants,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -351,7 +386,11 @@ func (d *Document) RemoveText(text string) ([]byte, error) {
 	return nil, unsupported("verified text removal is not supported")
 }
 
-func (d *Document) replaceText(selector pdfapi.TextSelector, newText string, invariants []string) ([]byte, error) {
+func (d *Document) replaceText(selector pdfapi.TextSelector, newText string, invariants []string, opts TextEditOptions) ([]byte, error) {
+	rewrite, err := textRewriteMode(opts.Rewrite)
+	if err != nil {
+		return nil, err
+	}
 	out, _, _, err := pdfapi.EditText(
 		d.input,
 		selector,
@@ -359,7 +398,7 @@ func (d *Document) replaceText(selector pdfapi.TextSelector, newText string, inv
 		pdfapi.Options{
 			Password:      d.options.Password,
 			SignatureMode: d.options.SignatureMode,
-			Rewrite:       pdfapi.RewriteModeCanonical,
+			Rewrite:       rewrite,
 			Verify:        invariants,
 		},
 	)
@@ -367,4 +406,15 @@ func (d *Document) replaceText(selector pdfapi.TextSelector, newText string, inv
 		return nil, classifyParseError(err)
 	}
 	return out, nil
+}
+
+func textRewriteMode(mode TextRewriteMode) (pdfapi.RewriteMode, error) {
+	switch mode {
+	case "", TextRewriteCanonical:
+		return pdfapi.RewriteModeCanonical, nil
+	case TextRewritePreserveStructure:
+		return pdfapi.RewriteModePreserveStructure, nil
+	default:
+		return "", unsupported(fmt.Sprintf("unsupported text rewrite mode %q", mode))
+	}
 }

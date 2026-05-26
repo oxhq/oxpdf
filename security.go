@@ -17,28 +17,53 @@ type Security struct {
 
 // Encryption summarizes an encryption dictionary when one is present.
 type Encryption struct {
-	Present          bool
-	Filter           string
-	SubFilter        string
-	V                int
-	R                int
-	Length           int
-	PublicKey        bool
-	DictionaryParsed bool
-	ObjectNumber     int
-	ObjectGeneration int
+	Present            bool
+	Filter             string
+	SubFilter          string
+	V                  int
+	R                  int
+	Length             int
+	EncryptMetadata    bool
+	HasEncryptMetadata bool
+	StreamFilter       string
+	StringFilter       string
+	EmbeddedFileFilter string
+	CryptFilters       []EncryptionCryptFilter
+	PublicKey          bool
+	RecipientCount     int
+	DictionaryParsed   bool
+	ObjectNumber       int
+	ObjectGeneration   int
+}
+
+// EncryptionCryptFilter summarizes one encryption crypt filter dictionary.
+type EncryptionCryptFilter struct {
+	Name      string
+	CFM       string
+	AuthEvent string
+	Length    int
 }
 
 // Signature summarizes signature markers without making trust claims.
 type Signature struct {
 	Present                          bool
+	ByteRangeCount                   int
+	ByteRangeTotalRanges             int
+	ByteRangeCoveredBytes            int
 	ByteRangeStatus                  string
+	ContentsByteLength               int
+	HasContentsByteLength            bool
 	SubFilter                        string
 	Filter                           string
 	SigningTime                      string
+	ObjectNumber                     int
+	ObjectGeneration                 int
 	SignatureContainer               string
 	DigestAlgorithm                  string
 	DigestAlgorithmStatus            string
+	CertificateCount                 int
+	SignerCertificateSubject         string
+	SignerCertificateIssuer          string
 	ByteRangeDigestValidation        bool
 	ByteRangeDigestValidationStatus  string
 	CryptographicValidation          bool
@@ -58,13 +83,23 @@ func (d *Document) Security() Security {
 		Signed:    metadata.Signed,
 		Signature: Signature{
 			Present:                          metadata.Signature.Present,
+			ByteRangeCount:                   metadata.Signature.ByteRangeCount,
+			ByteRangeTotalRanges:             metadata.Signature.ByteRangeTotalRanges,
+			ByteRangeCoveredBytes:            metadata.Signature.ByteRangeCoveredBytes,
 			ByteRangeStatus:                  metadata.Signature.ByteRangeStatus,
+			ContentsByteLength:               intValueFromPointer(metadata.Signature.ContentsByteLength),
+			HasContentsByteLength:            metadata.Signature.ContentsByteLength != nil,
 			SubFilter:                        metadata.Signature.SubFilter,
 			Filter:                           metadata.Signature.Filter,
 			SigningTime:                      metadata.Signature.SigningTime,
+			ObjectNumber:                     intValueFromPointer(metadata.Signature.ObjectNumber),
+			ObjectGeneration:                 intValueFromPointer(metadata.Signature.ObjectGeneration),
 			SignatureContainer:               metadata.Signature.SignatureContainer,
 			DigestAlgorithm:                  metadata.Signature.DigestAlgorithm,
 			DigestAlgorithmStatus:            metadata.Signature.DigestAlgorithmStatus,
+			CertificateCount:                 metadata.Signature.CertificateCount,
+			SignerCertificateSubject:         metadata.Signature.SignerCertificateSubject,
+			SignerCertificateIssuer:          metadata.Signature.SignerCertificateIssuer,
 			ByteRangeDigestValidation:        metadata.Signature.ByteRangeDigestValidation,
 			ByteRangeDigestValidationStatus:  metadata.Signature.ByteRangeDigestValidationStatus,
 			CryptographicValidation:          metadata.Signature.CryptographicValidation,
@@ -75,16 +110,23 @@ func (d *Document) Security() Security {
 	}
 	if metadata.Encryption != nil {
 		security.Encryption = Encryption{
-			Present:          metadata.Encryption.Present,
-			Filter:           metadata.Encryption.Filter,
-			SubFilter:        metadata.Encryption.SubFilter,
-			V:                intValueFromPointer(metadata.Encryption.V),
-			R:                intValueFromPointer(metadata.Encryption.R),
-			Length:           intValueFromPointer(metadata.Encryption.Length),
-			PublicKey:        metadata.Encryption.PublicKey,
-			DictionaryParsed: metadata.Encryption.DictionaryParsed,
-			ObjectNumber:     intValueFromPointer(metadata.Encryption.ObjectNumber),
-			ObjectGeneration: intValueFromPointer(metadata.Encryption.ObjectGeneration),
+			Present:            metadata.Encryption.Present,
+			Filter:             metadata.Encryption.Filter,
+			SubFilter:          metadata.Encryption.SubFilter,
+			V:                  intValueFromPointer(metadata.Encryption.V),
+			R:                  intValueFromPointer(metadata.Encryption.R),
+			Length:             intValueFromPointer(metadata.Encryption.Length),
+			EncryptMetadata:    boolValueFromPointer(metadata.Encryption.EncryptMetadata),
+			HasEncryptMetadata: metadata.Encryption.EncryptMetadata != nil,
+			StreamFilter:       metadata.Encryption.StreamFilter,
+			StringFilter:       metadata.Encryption.StringFilter,
+			EmbeddedFileFilter: metadata.Encryption.EmbeddedFileFilter,
+			CryptFilters:       mapEncryptionCryptFilters(metadata.Encryption.CryptFilters),
+			PublicKey:          metadata.Encryption.PublicKey,
+			RecipientCount:     intValueFromPointer(metadata.Encryption.RecipientCount),
+			DictionaryParsed:   metadata.Encryption.DictionaryParsed,
+			ObjectNumber:       intValueFromPointer(metadata.Encryption.ObjectNumber),
+			ObjectGeneration:   intValueFromPointer(metadata.Encryption.ObjectGeneration),
 		}
 	}
 	if security.Encrypted && (!security.Encryption.DictionaryParsed || security.Encryption.V == 0 || security.Encryption.R == 0) {
@@ -100,6 +142,26 @@ func intValueFromPointer(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func boolValueFromPointer(value *bool) bool {
+	if value == nil {
+		return false
+	}
+	return *value
+}
+
+func mapEncryptionCryptFilters(filters []binaspdf.EncryptionCryptFilter) []EncryptionCryptFilter {
+	out := make([]EncryptionCryptFilter, 0, len(filters))
+	for _, filter := range filters {
+		out = append(out, EncryptionCryptFilter{
+			Name:      filter.Name,
+			CFM:       filter.CFM,
+			AuthEvent: filter.AuthEvent,
+			Length:    intValueFromPointer(filter.Length),
+		})
+	}
+	return out
 }
 
 func parseEncryptionDictionary(input []byte) (Encryption, bool) {

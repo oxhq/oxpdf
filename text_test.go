@@ -3,6 +3,7 @@ package oxpdf
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -140,6 +141,68 @@ func TestReplaceTextOccurrenceRejectsRemovalShape(t *testing.T) {
 	}
 }
 
+func TestReplaceTextWithOptionsPreservesObjectStreams(t *testing.T) {
+	input := objectStreamTextPDF()
+	doc, err := OpenBytes(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canonical, err := doc.ReplaceText("08-15-2024", "05-20-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(canonical, []byte("/ObjStm")) {
+		t.Fatalf("canonical ReplaceText preserved object stream container:\n%s", canonical)
+	}
+
+	doc, err = OpenBytes(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := doc.ReplaceTextWithOptions("08-15-2024", "05-20-2026", TextEditOptions{
+		Rewrite: TextRewritePreserveStructure,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(preserved, []byte("/Type /ObjStm")) {
+		t.Fatalf("preserve-structure ReplaceText lost object stream container:\n%s", preserved)
+	}
+	reopened, err := OpenBytes(preserved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xref := reopened.Xref()
+	if !xref.HasObjectStream || xref.ObjectStreamCount != 1 {
+		t.Fatalf("Xref() = %+v, want preserved object stream metadata", xref)
+	}
+	oldMatches, err := reopened.FindText("08-15-2024")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(oldMatches) != 0 {
+		t.Fatalf("FindText(old) = %+v, want none", oldMatches)
+	}
+	newMatches, err := reopened.FindText("05-20-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newMatches) != 1 {
+		t.Fatalf("FindText(new) len = %d, want 1", len(newMatches))
+	}
+}
+
+func TestReplaceTextWithOptionsRejectsUnknownRewriteMode(t *testing.T) {
+	doc, err := OpenBytes(textPDF("Only once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.ReplaceTextWithOptions("Only once", "Changed", TextEditOptions{Rewrite: "unknown"}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("ReplaceTextWithOptions(unknown rewrite) error = %v, want ErrUnsupported", err)
+	}
+}
+
 func TestRemoveTextFailsClosed(t *testing.T) {
 	doc, err := OpenBytes(textPDF("Remove me"))
 	if err != nil {
@@ -184,6 +247,17 @@ func multiPageTextPDF(texts ...string) []byte {
 	objects = append(objects, contents...)
 	objects = append(objects, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 	return pdfObjects(objects...)
+}
+
+func objectStreamTextPDF() []byte {
+	content := []byte("BT\n(08\\05515\\0552024) Tj\nET\n")
+	objectStreamData := "5 0 << /Fixture true >>"
+	return pdfObjects(
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Page /Contents 3 0 R >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content),
+		fmt.Sprintf("<< /Type /ObjStm /N 1 /First 4 /Length %d >>\nstream\n%sendstream", len(objectStreamData), objectStreamData),
+	)
 }
 
 func pdfObjects(objects ...string) []byte {
