@@ -1,9 +1,11 @@
 package oxpdf
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +61,16 @@ func TestWithPasswordIsPassedToBackingAPI(t *testing.T) {
 	}
 	if doc.NumPages() != 1 {
 		t.Fatalf("NumPages() = %d, want 1", doc.NumPages())
+	}
+}
+
+func TestWithStrictParsingRejectsMissingEOF(t *testing.T) {
+	input := bytes.TrimSuffix(blankPDF([]PageSize{PageSizeLetter}), []byte("%%EOF\n"))
+	if _, err := OpenBytes(input); err != nil {
+		t.Fatalf("OpenBytes() without strict returned error: %v", err)
+	}
+	if _, err := OpenBytes(input, WithStrictParsing()); err == nil || !strings.Contains(err.Error(), "missing EOF marker") {
+		t.Fatalf("OpenBytes(strict missing EOF) error = %v, want missing EOF marker", err)
 	}
 }
 

@@ -6,6 +6,8 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | --- | --- | --- | --- |
 | synthetic blank page | OxPDF tests | pass | Reader, profile, validate, writer parse-after-write. |
 | synthetic two-page blank PDF | OxPDF tests | structure pass | Classic trailer `/Size` and `/Root`, catalog `/Pages`, and xref table summary. |
+| synthetic missing EOF | OxPDF tests | strict parsing pass | Non-strict open remains permissive; `WithStrictParsing()` rejects the missing EOF marker. |
+| synthetic labeled pages | OxPDF tests | page labels pass | Default one-based page labels plus direct `/PageLabels /Nums` parsing for prefixed roman and decimal labels. |
 | synthetic selectable text | OxPDF tests | pass | `FindText`, `ExtractText`, verified `ReplaceText`. |
 | `hello-world.pdf` | `C:\Users\garae\Documents\pypdf\resources\hello-world.pdf` | pass | Ordinary open from bytes/file, `NumPages()==1`, no security boundary. |
 | `two-different-pages.pdf` | `C:\Users\garae\Documents\pypdf\resources\two-different-pages.pdf` | pass | Multi-page traversal, `NumPages()==2`, `Page(0)` and `Page(1)`. |

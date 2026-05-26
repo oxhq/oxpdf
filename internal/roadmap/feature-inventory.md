@@ -16,6 +16,8 @@ it is rewritten as user-facing documentation.
 - `Trailer()`, `Catalog()`, and `Xref()` expose read-only structure summaries:
   classic trailer root/info/size references, direct catalog references, and
   released binas xref table/stream/object-stream counts.
+- `WithStrictParsing()` is wired to the backing strict parser for malformed
+  input checks such as missing EOF markers.
 - Backing: `pdf.Adapter.Parse`, root node metadata, xref/boundary summary.
 - pypdf evidence: `_reader.py`, `_doc_common.py`, `tests/test_reader.py`,
   and `tests/test_doc_common.py` cover opening, header, pages, metadata,
@@ -116,10 +118,13 @@ it is rewritten as user-facing documentation.
   name trees with `/XYZ` arrays and resolvable page object references.
 - `OutlineItems()` exposes a flat, read-only top-level outline list from direct
   outline linked lists with `GoTo` actions targeting named destinations.
+- `PageLabels()` exposes one label per page, defaulting to one-based decimal
+  labels and parsing direct `/PageLabels /Nums` entries for decimal, roman, and
+  alphabetic styles.
 - pypdf evidence: `xmp.py`, `_page_labels.py`, `_doc_common.py`,
   `_writer.py`, `generic/_files.py`, `tests/test_xmp.py`,
   `tests/test_page_labels.py`, and `tests/test_javascript.py`.
-- Page labels, nested outline trees, broad name-tree attachments, JavaScript
-  name-tree actions, and object-stream-backed navigation fixtures remain
-  roadmap items until object graph operations are exposed at a stable backing
-  boundary.
+- Nested outline trees, broad name-tree attachments, JavaScript name-tree
+  actions, recursive `/PageLabels /Kids`, and object-stream-backed navigation
+  fixtures remain roadmap items until object graph operations are exposed at a
+  stable backing boundary.

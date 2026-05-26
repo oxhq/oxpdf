@@ -53,7 +53,7 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 		}
 	}
 	apiOpts := pdfapi.Options{Password: cfg.password}
-	tree, err := pdfapi.Inspect(input, apiOpts)
+	tree, err := inspectPDF(input, apiOpts, cfg.strict)
 	if err != nil {
 		if isXFAUnsupportedError(err) {
 			if packets, packetErr := binaspdf.ListXFAPackets(input); packetErr == nil && len(packets) > 0 {
@@ -81,6 +81,16 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 		root:    root,
 		options: apiOpts,
 	}, nil
+}
+
+func inspectPDF(input []byte, opts pdfapi.Options, strict bool) (*core.Tree, error) {
+	if !strict {
+		return pdfapi.Inspect(input, opts)
+	}
+	if opts.Password != "" {
+		return binaspdf.ParseWithPassword(input, core.ParseOptions{Strict: true}, opts.Password)
+	}
+	return binaspdf.NewAdapter().Parse(input, core.ParseOptions{Strict: true})
 }
 
 func isXFAUnsupportedError(err error) bool {
