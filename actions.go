@@ -168,9 +168,12 @@ func filespecEmbeddedFileRef(dict []byte) (objectRef, bool) {
 }
 
 func filespecName(dict []byte) string {
-	matches := regexp.MustCompile(`/F\s+(\([^)]*\)|<[^>]*>)`).FindAllSubmatch(dict, -1)
-	for i := len(matches) - 1; i >= 0; i-- {
-		if value, ok := parsePDFTextValue(matches[i][1]); ok {
+	for _, key := range []string{"UF", "F"} {
+		raw, ok := directNameValue(dict, key)
+		if !ok {
+			continue
+		}
+		if value, ok := parsePDFTextValue(raw); ok {
 			return value
 		}
 	}

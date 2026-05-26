@@ -110,12 +110,16 @@ it is rewritten as user-facing documentation.
   this metadata is readable, but no full document parse is claimed for those
   sparse handles.
 - `Attachments()` exposes direct file-spec attachment payloads backed by
-  embedded-file streams with no filter or `FlateDecode`.
+  embedded-file streams with no filter or `FlateDecode`; attachment names are
+  decoded from `/UF` or `/F` without requiring whitespace before the string.
 - `NamedDestinations()` exposes read-only named destinations from direct `/Dests`
   name trees with `/XYZ` arrays and resolvable page object references.
+- `OutlineItems()` exposes a flat, read-only top-level outline list from direct
+  outline linked lists with `GoTo` actions targeting named destinations.
 - pypdf evidence: `xmp.py`, `_page_labels.py`, `_doc_common.py`,
   `_writer.py`, `generic/_files.py`, `tests/test_xmp.py`,
   `tests/test_page_labels.py`, and `tests/test_javascript.py`.
-- Page labels, outlines, broad name-tree attachments, JavaScript name-tree
-  actions, and object-stream-backed navigation fixtures remain roadmap items
-  until object graph operations are exposed at a stable backing boundary.
+- Page labels, nested outline trees, broad name-tree attachments, JavaScript
+  name-tree actions, and object-stream-backed navigation fixtures remain
+  roadmap items until object graph operations are exposed at a stable backing
+  boundary.
