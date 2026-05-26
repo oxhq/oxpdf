@@ -8,15 +8,19 @@ This manifest tracks compatibility targets. It is not a blind pypdf test port.
 | synthetic selectable text | OxPDF tests | pass | `FindText`, `ExtractText`, verified `ReplaceText`. |
 | `hello-world.pdf` | `C:\Users\garae\Documents\pypdf\resources\hello-world.pdf` | pass | Ordinary open from bytes/file, `NumPages()==1`, no security boundary. |
 | `two-different-pages.pdf` | `C:\Users\garae\Documents\pypdf\resources\two-different-pages.pdf` | pass | Multi-page traversal, `NumPages()==2`, `Page(0)` and `Page(1)`. |
-| `metadata.pdf` | `C:\Users\garae\Documents\pypdf\resources\metadata.pdf` | pass | Document info dictionary: title, author, subject, keywords, dates. |
+| `metadata.pdf` | `C:\Users\garae\Documents\pypdf\resources\metadata.pdf` | pass | Document info dictionary: title, author, subject, keywords, dates; no XMP returns empty. |
 | `missing_info.pdf` | `C:\Users\garae\Documents\pypdf\resources\missing_info.pdf` | pass | Missing `/Info` is not an error; metadata should be empty. |
 | `encrypted-file.pdf` | `C:\Users\garae\Documents\pypdf\resources\encrypted-file.pdf` | unsupported/security pass | Structured encrypted/security refusal, no panic or generic parse failure. |
-| `r2-user-password.pdf` | `C:\Users\garae\Documents\pypdf\resources\encryption\r2-user-password.pdf` | security pass | Named Standard Security metadata: Standard, V=1, R=2, Length=40; password decrypt remains later. |
+| `r2-user-password.pdf` | `C:\Users\garae\Documents\pypdf\resources\encryption\r2-user-password.pdf` | security/password pass | Named Standard Security metadata: Standard, V=1, R=2, Length=40; opens with the known user password and fails closed on the wrong one. |
 | `pdflatex-forms.pdf` | `C:\Users\garae\Documents\pypdf\resources\pdflatex-forms.pdf` | profile-only | AcroForm presence; Unicode field-name decoding still belongs in the backing API. |
 | `libreoffice-form.pdf` | `C:\Users\garae\Documents\pypdf\resources\libreoffice-form.pdf` | fields/fill/profile pass | Richer real-world form and annotation pressure: 8 fillable fields, 4 text fields, text fill, checkbox set/unset, 9 blocked annotations. |
 | `commented.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented.pdf` | annotations/edit/profile pass | Annotation listing/editing: 6 annotations, decoded UTF-16BE contents/title, status/blocker metadata, supported content edits for indexes 0/2/4. |
+| `commented-xmp.pdf` | `C:\Users\garae\Documents\pypdf\resources\commented-xmp.pdf` | XMP pass | Read-only XMP packet extraction and `tiff:Artist` parsing. |
+| `issue-914-xmp-data.pdf` | `C:\Users\garae\Documents\pypdf\resources\issue-914-xmp-data.pdf` | XMP pass | Read-only XMP packet extraction and UTC-normalized `xmp:ModifyDate`. |
 | `box.pdf` | `C:\Users\garae\Documents\pypdf\resources\box.pdf` | pass | Page box fallback smoke: all boxes resolve to `[0 0 60 60]`, rotation `0`. |
 | `indirect-rotation.pdf` | `C:\Users\garae\Documents\pypdf\resources\indirect-rotation.pdf` | pass | Five pages with indirect `/Rotate` resolving to `0` and media box `[0 0 612 792]`. |
+| synthetic static XFA | OxPDF tests | XFA pass | XFA packet listing, static dataset field listing, template/dataset mappings, XML-escaped static dataset update. |
+| synthetic dynamic/ambiguous XFA | OxPDF tests | unsupported/XFA pass | Dynamic XFA and ambiguous dataset edits fail closed with `ErrUnsupported`. |
 
 Next concrete step: keep existing-page writer operations guarded until binas
 exports page graph copy/merge support; continue tightening page-range and field

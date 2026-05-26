@@ -17,9 +17,8 @@ it is rewritten as user-facing documentation.
 - pypdf evidence: `_reader.py`, `_doc_common.py`, `tests/test_reader.py`,
   and `tests/test_doc_common.py` cover opening, header, pages, metadata,
   encryption state, trailer/root, and malformed/xref behavior.
-- Gap: trailer/root structured summaries, inherited page-tree attributes beyond
-  current corpus coverage, and password-open support need a higher-level binas
-  API.
+- Gap: trailer/root structured summaries and inherited page-tree attributes
+  beyond current corpus coverage.
 
 ## Writer And Pages
 
@@ -78,20 +77,29 @@ it is rewritten as user-facing documentation.
 - Current profile reports encryption, signatures, XFA, xref streams, object
   streams, filters, CMaps, and related boundaries surfaced by binas.
 - `Security()` exposes read-only encryption and signature boundary metadata
-  without claiming password decrypt, signature trust, revocation, timestamp, or
-  legal-grade validation.
+  without claiming signature trust, revocation, timestamp, or legal-grade
+  validation.
+- `WithPassword()` is proven against pypdf Standard Security fixtures for
+  read/open behavior. Wrong passwords fail closed as `ErrUnsupported`.
 - pypdf evidence: `filters.py`, `_encryption.py`, `_crypt_providers/*`,
   image helpers in `_page.py`, `tests/test_filters.py`, `tests/test_images.py`,
   and `tests/test_encryption.py`.
-- Password open/encrypt, image extraction, image replacement, public-key
-  encryption, AESV3, and legal-grade trust are not exposed.
+- Encrypt, image extraction, image replacement, public-key encryption, AESV3,
+  and legal-grade trust are not exposed.
 
 ## Metadata And Navigation
 
-- Current metadata is header-only.
+- `Metadata()` reads the document info dictionary for common title, author,
+  subject, keywords, producer, creator, and date fields.
+- `XMPMetadata()` exposes read-only XMP packet XML plus small parsed fields
+  currently proven for `tiff:Artist` and UTC-normalized `xmp:ModifyDate`.
+- `XFAPackets()`, `XFADatasetFields()`, `XFATemplateDatasetMappings()`,
+  `XFASemantics()`, and `SetXFADatasetField()` expose static XFA dataset
+  inspection/editing. Dynamic XFA rendering and ambiguous dataset edits fail
+  closed.
 - pypdf evidence: `xmp.py`, `_page_labels.py`, `_doc_common.py`,
   `_writer.py`, `generic/_files.py`, `tests/test_xmp.py`,
   `tests/test_page_labels.py`, and `tests/test_javascript.py`.
-- Document info, XMP, page labels, outlines, named destinations, attachments,
-  and JavaScript actions remain roadmap items until object graph operations are
-  exposed at a stable backing boundary.
+- Page labels, outlines, named destinations, attachments, and JavaScript
+  actions remain roadmap items until object graph operations are exposed at a
+  stable backing boundary.

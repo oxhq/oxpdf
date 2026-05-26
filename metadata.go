@@ -2,10 +2,14 @@ package oxpdf
 
 import (
 	"bytes"
+	"compress/flate"
 	"encoding/hex"
+	"encoding/xml"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 )
 
@@ -23,6 +27,28 @@ type Metadata struct {
 	Values       map[string]string
 }
 
+// XMPMetadata exposes read-only XMP packet data for common metadata workflows.
+type XMPMetadata struct {
+	RawXML     string
+	TIFFArtist []string
+	ModifyDate string
+}
+
+// XMPMetadata returns the document-level XMP metadata packet when present.
+func (d *Document) XMPMetadata() (XMPMetadata, bool, error) {
+	if d == nil {
+		return XMPMetadata{}, false, nil
+	}
+	raw, ok, err := extractXMPMetadataXML(d.input)
+	if err != nil {
+		return XMPMetadata{}, false, err
+	}
+	if !ok {
+		return XMPMetadata{}, false, nil
+	}
+	return parseXMPMetadata(raw), true, nil
+}
+
 func parseMetadata(input []byte) Metadata {
 	values := parseInfoDictionary(input)
 	return Metadata{
@@ -36,6 +62,191 @@ func parseMetadata(input []byte) Metadata {
 		ModDate:      values["ModDate"],
 		Values:       values,
 	}
+}
+
+func extractXMPMetadataXML(input []byte) (string, bool, error) {
+	refRe := regexp.MustCompile(`/Metadata\s+(\d+)\s+(\d+)\s+R\b`)
+	refs := refRe.FindAllSubmatch(input, -1)
+	if len(refs) == 0 {
+		return "", false, nil
+	}
+	for i := len(refs) - 1; i >= 0; i-- {
+		raw, ok, err := extractXMPMetadataXMLRef(input, refs[i])
+		if err != nil || ok {
+			return raw, ok, err
+		}
+	}
+	if raw, ok, err := extractXMPMetadataXMLByType(input); err != nil || ok {
+		return raw, ok, err
+	}
+	return "", false, nil
+}
+
+func extractXMPMetadataXMLRef(input []byte, ref [][]byte) (string, bool, error) {
+	objectRe := regexp.MustCompile(regexp.QuoteMeta(string(ref[1])) + `\s+` + regexp.QuoteMeta(string(ref[2])) + `\s+obj\b`)
+	objectAt := objectRe.FindIndex(input)
+	if objectAt == nil {
+		return "", false, nil
+	}
+	dictStartRel := bytes.Index(input[objectAt[1]:], []byte("<<"))
+	if dictStartRel == -1 {
+		return "", false, nil
+	}
+	return extractXMPMetadataXMLAt(input, objectAt[1]+dictStartRel)
+}
+
+func extractXMPMetadataXMLByType(input []byte) (string, bool, error) {
+	for _, marker := range [][]byte{[]byte("/Type/Metadata"), []byte("/Type /Metadata")} {
+		searchFrom := 0
+		for {
+			at := bytes.Index(input[searchFrom:], marker)
+			if at == -1 {
+				break
+			}
+			at += searchFrom
+			objStart := bytes.LastIndex(input[:at], []byte(" obj"))
+			if objStart == -1 {
+				searchFrom = at + len(marker)
+				continue
+			}
+			lineStart := bytes.LastIndexAny(input[:objStart], "\r\n")
+			if lineStart == -1 {
+				lineStart = 0
+			} else {
+				lineStart++
+			}
+			dictStart := bytes.Index(input[lineStart:], []byte("<<"))
+			if dictStart == -1 {
+				searchFrom = at + len(marker)
+				continue
+			}
+			raw, ok, err := extractXMPMetadataXMLAt(input, lineStart+dictStart)
+			if err != nil || ok {
+				return raw, ok, err
+			}
+			searchFrom = at + len(marker)
+		}
+	}
+	return "", false, nil
+}
+
+func extractXMPMetadataXMLAt(input []byte, dictStart int) (string, bool, error) {
+	dictEnd, ok := scanDictionaryEnd(input, dictStart)
+	if !ok {
+		return "", false, nil
+	}
+	dict := input[dictStart:dictEnd]
+	if !bytes.Contains(dict, []byte("/Type")) || !bytes.Contains(dict, []byte("/Metadata")) || !bytes.Contains(dict, []byte("/Subtype")) || !bytes.Contains(dict, []byte("/XML")) {
+		return "", false, nil
+	}
+	streamAtRel := bytes.Index(input[dictEnd:], []byte("stream"))
+	if streamAtRel == -1 {
+		return "", false, nil
+	}
+	streamStart := dictEnd + streamAtRel + len("stream")
+	if streamStart < len(input) && input[streamStart] == '\r' {
+		streamStart++
+		if streamStart < len(input) && input[streamStart] == '\n' {
+			streamStart++
+		}
+	} else if streamStart < len(input) && input[streamStart] == '\n' {
+		streamStart++
+	}
+	streamEndRel := bytes.Index(input[streamStart:], []byte("endstream"))
+	if streamEndRel == -1 {
+		return "", false, nil
+	}
+	stream := bytes.TrimRight(input[streamStart:streamStart+streamEndRel], "\x00\t\n\f\r ")
+	if bytes.Contains(dict, []byte("/Filter")) {
+		if !bytes.Contains(dict, []byte("/FlateDecode")) {
+			return "", false, unsupported("XMP metadata stream filter is not supported")
+		}
+		decoded, err := flateDecode(stream)
+		if err != nil {
+			return "", false, err
+		}
+		stream = decoded
+	}
+	if !bytes.Contains(stream, []byte("<x:xmpmeta")) && !bytes.Contains(stream, []byte("<xmpmeta")) {
+		return "", false, nil
+	}
+	return string(stream), true, nil
+}
+
+func flateDecode(input []byte) ([]byte, error) {
+	reader := flate.NewReader(bytes.NewReader(input))
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
+
+func parseXMPMetadata(raw string) XMPMetadata {
+	out := XMPMetadata{RawXML: raw}
+	decoder := xml.NewDecoder(strings.NewReader(raw))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch start.Name.Local {
+		case "Artist":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.TIFFArtist = append(out.TIFFArtist, text)
+			}
+		case "ModifyDate":
+			if text, ok := readXMLElementText(decoder, start.Name); ok {
+				out.ModifyDate = normalizeXMPDate(text)
+			}
+		}
+	}
+	return out
+}
+
+func readXMLElementText(decoder *xml.Decoder, name xml.Name) (string, bool) {
+	var text strings.Builder
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return "", false
+		}
+		switch t := token.(type) {
+		case xml.CharData:
+			text.Write([]byte(t))
+		case xml.EndElement:
+			if t.Name.Local == name.Local {
+				return strings.TrimSpace(text.String()), true
+			}
+		case xml.StartElement:
+			if err := decoder.Skip(); err != nil {
+				return "", false
+			}
+		}
+	}
+}
+
+func normalizeXMPDate(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			if _, offset := parsed.Zone(); offset != 0 || strings.HasSuffix(value, "Z") {
+				return parsed.UTC().Format("2006-01-02T15:04:05")
+			}
+			return parsed.Format("2006-01-02T15:04:05")
+		}
+	}
+	return value
 }
 
 func parseInfoDictionary(input []byte) map[string]string {

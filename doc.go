@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 
+	binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
 	"github.com/oxhq/binas/pkg/core"
 	"github.com/oxhq/binas/pkg/pdfapi"
 )
@@ -54,6 +55,14 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 	apiOpts := pdfapi.Options{Password: cfg.password}
 	tree, err := pdfapi.Inspect(input, apiOpts)
 	if err != nil {
+		if isXFAUnsupportedError(err) {
+			if packets, packetErr := binaspdf.ListXFAPackets(input); packetErr == nil && len(packets) > 0 {
+				return &Document{
+					input:   bytes.Clone(input),
+					options: apiOpts,
+				}, nil
+			}
+		}
 		return nil, classifyParseError(err)
 	}
 	root, ok := tree.Node(tree.Root)
@@ -66,6 +75,13 @@ func OpenBytes(input []byte, opts ...OpenOption) (*Document, error) {
 		root:    root,
 		options: apiOpts,
 	}, nil
+}
+
+func isXFAUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return bytes.Contains([]byte(err.Error()), []byte("XFA forms are not implemented"))
 }
 
 // Document is an opened PDF document.

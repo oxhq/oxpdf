@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,32 @@ func TestPypdfCorpusEncryptedFailsClosed(t *testing.T) {
 	_, err := OpenFile(filepath.Join(resources, "encrypted-file.pdf"))
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("OpenFile(encrypted-file.pdf) error = %v, want ErrUnsupported", err)
+	}
+}
+
+func TestPypdfCorpusOpenEncryptedWithPassword(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "encryption", "r2-user-password.pdf"), WithPassword("asdfzxcv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.NumPages(); got != 1 {
+		t.Fatalf("NumPages() = %d, want 1", got)
+	}
+	security := doc.Security()
+	if !security.Encrypted || !security.Encryption.Present {
+		t.Fatalf("Security() = %+v, want encrypted metadata", security)
+	}
+}
+
+func TestPypdfCorpusOpenEncryptedWrongPasswordFailsClosed(t *testing.T) {
+	resources := pypdfResources(t)
+	_, err := OpenFile(filepath.Join(resources, "encryption", "r2-user-password.pdf"), WithPassword("wrong"))
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("OpenFile(encrypted wrong password) error = %v, want ErrUnsupported", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "wrong") {
+		t.Fatalf("wrong password leaked in error: %v", err)
 	}
 }
 
@@ -118,6 +145,57 @@ func TestPypdfCorpusMissingInfoHasEmptyMetadata(t *testing.T) {
 	metadata := doc.Metadata()
 	if len(metadata.Values) != 0 {
 		t.Fatalf("Metadata().Values len = %d, want 0: %#v", len(metadata.Values), metadata.Values)
+	}
+}
+
+func TestPypdfCorpusXMPMetadata(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "commented-xmp.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	xmp, ok, err := doc.XMPMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("XMPMetadata() ok = false, want true")
+	}
+	if !strings.Contains(xmp.RawXML, "<x:xmpmeta") {
+		t.Fatalf("XMPMetadata().RawXML missing xmpmeta: %.80q", xmp.RawXML)
+	}
+	if !sameStrings(xmp.TIFFArtist, []string{"me"}) {
+		t.Fatalf("XMPMetadata().TIFFArtist = %v, want [me]", xmp.TIFFArtist)
+	}
+
+	issue, err := OpenFile(filepath.Join(resources, "issue-914-xmp-data.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issueXMP, ok, err := issue.XMPMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("issue XMPMetadata() ok = false, want true")
+	}
+	if issueXMP.ModifyDate != "2022-04-09T15:22:43" {
+		t.Fatalf("XMPMetadata().ModifyDate = %q, want UTC-normalized value", issueXMP.ModifyDate)
+	}
+}
+
+func TestPypdfCorpusMissingXMPMetadata(t *testing.T) {
+	resources := pypdfResources(t)
+	doc, err := OpenFile(filepath.Join(resources, "metadata.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	xmp, ok, err := doc.XMPMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || xmp.RawXML != "" {
+		t.Fatalf("XMPMetadata() = %+v, %v, want empty false", xmp, ok)
 	}
 }
 
