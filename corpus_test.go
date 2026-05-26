@@ -70,6 +70,26 @@ func TestPypdfCorpusOpenEncryptedWrongPasswordFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPypdfCorpusEncryptedVariantsFailClosed(t *testing.T) {
+	resources := pypdfResources(t)
+	for _, file := range []string{
+		"r3-user-password.pdf",
+		"r4-aes-user-password.pdf",
+		"r5-user-password.pdf",
+		"r6-user-password.pdf",
+	} {
+		t.Run(file, func(t *testing.T) {
+			_, err := OpenFile(filepath.Join(resources, "encryption", file), WithPassword("wrong"))
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("OpenFile(%s wrong password) error = %v, want ErrUnsupported", file, err)
+			}
+			if err != nil && strings.Contains(err.Error(), "wrong") {
+				t.Fatalf("wrong password leaked in error: %v", err)
+			}
+		})
+	}
+}
+
 func TestPypdfCorpusSecurityMetadata(t *testing.T) {
 	resources := pypdfResources(t)
 	plainBytes, err := os.ReadFile(filepath.Join(resources, "hello-world.pdf"))
@@ -97,6 +117,37 @@ func TestPypdfCorpusSecurityMetadata(t *testing.T) {
 	}
 	if encrypted.Signed || encrypted.Signature.Present {
 		t.Fatalf("encrypted Signature = %+v", encrypted.Signature)
+	}
+}
+
+func TestPypdfCorpusEncryptionVariantMetadata(t *testing.T) {
+	resources := pypdfResources(t)
+	tests := []struct {
+		file   string
+		v      int
+		r      int
+		length int
+	}{
+		{file: "r2-user-password.pdf", v: 1, r: 2, length: 40},
+		{file: "r3-user-password.pdf", v: 2, r: 3, length: 128},
+		{file: "r4-aes-user-password.pdf", v: 4, r: 4, length: 128},
+		{file: "r5-user-password.pdf", v: 5, r: 5, length: 256},
+		{file: "r6-user-password.pdf", v: 5, r: 6, length: 256},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			input, err := os.ReadFile(filepath.Join(resources, "encryption", tt.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			security := (&Document{input: input}).Security()
+			if !security.Encrypted || !security.Encryption.Present {
+				t.Fatalf("Security() = %+v, want encrypted metadata", security)
+			}
+			if security.Encryption.Filter != "Standard" || security.Encryption.V != tt.v || security.Encryption.R != tt.r || security.Encryption.Length != tt.length {
+				t.Fatalf("Encryption = %+v, want Standard V=%d R=%d Length=%d", security.Encryption, tt.v, tt.r, tt.length)
+			}
+		})
 	}
 }
 
@@ -435,9 +486,15 @@ func TestPypdfCorpusButtonChoiceAndCheckboxSemantics(t *testing.T) {
 	if _, err := doc.SetButtonChoice("female", "Yes"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("SetButtonChoice(invalid state) error = %v, want ErrUnsupported", err)
 	}
+	if _, err := doc.SetButtonChoice("gdpr", "Yes"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetButtonChoice(checkbox) error = %v, want ErrUnsupported", err)
+	}
+	if _, err := doc.SetButtonChoice("Submit", "Yes"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetButtonChoice(pushbutton) error = %v, want ErrUnsupported", err)
+	}
 }
 
-func TestPypdfCorpusPdflatexFormUnicodeNameBoundary(t *testing.T) {
+func TestPypdfCorpusPdflatexFormDecodedNameMutation(t *testing.T) {
 	resources := pypdfResources(t)
 	doc, err := OpenFile(filepath.Join(resources, "pdflatex-forms.pdf"))
 	if err != nil {
@@ -450,14 +507,24 @@ func TestPypdfCorpusPdflatexFormUnicodeNameBoundary(t *testing.T) {
 	if len(fields) != 3 {
 		t.Fatalf("Fields() len = %d, want 3", len(fields))
 	}
-	if fields[0].Name == "Name" || fields[1].Name == "Check" {
-		t.Fatalf("expected current backing field names to preserve undecoded PDF text: %+v", fields[:2])
+	if fields[0].Name == fields[0].DecodedName || fields[0].DecodedName != "Name" {
+		t.Fatalf("text field names = raw %q decoded %q, want explicit decoded mapping to Name", fields[0].Name, fields[0].DecodedName)
 	}
-	if _, err := doc.Fill(map[string]string{"Name": "Ada"}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("Fill(decoded name) error = %v, want ErrUnsupported", err)
+	if fields[1].Name == fields[1].DecodedName || fields[1].DecodedName != "Check" {
+		t.Fatalf("checkbox field names = raw %q decoded %q, want explicit decoded mapping to Check", fields[1].Name, fields[1].DecodedName)
 	}
-	if _, err := doc.SetCheckbox("Check", true); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("SetCheckbox(decoded name) error = %v, want ErrUnsupported", err)
+	out, err := doc.Fill(map[string]string{"Name": "Ada"})
+	if err != nil {
+		t.Fatalf("Fill(decoded name) returned error: %v", err)
+	}
+	filled, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFieldValue(t, filled, fields[0].Name, "Ada")
+
+	if _, err := filled.SetCheckbox("Check", true); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetCheckbox(decoded name with missing Off appearance) error = %v, want ErrUnsupported", err)
 	}
 	if _, err := doc.SetButtonChoice("Submit", "Yes"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("SetButtonChoice(pushbutton) error = %v, want ErrUnsupported", err)

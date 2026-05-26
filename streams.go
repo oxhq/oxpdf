@@ -1,9 +1,17 @@
 package oxpdf
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+
 	binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
 	"github.com/oxhq/binas/pkg/core"
 )
+
+// ErrStreamIndexOutOfRange reports a zero-based stream index outside the
+// document.
+var ErrStreamIndexOutOfRange = errors.New("oxpdf: stream index out of range")
 
 // Stream describes a PDF stream and the filter/editability metadata exposed by
 // the backing parser.
@@ -70,6 +78,54 @@ func (d *Document) ImageXObjectStreams() []Stream {
 		}
 	}
 	return images
+}
+
+// DecodedStream returns decoded bytes for a stream by its Streams index.
+//
+// Only identity streams and FlateDecode streams without DecodeParms are
+// currently decoded. Other filters fail closed with ErrUnsupported.
+func (d *Document) DecodedStream(index int) ([]byte, error) {
+	if d == nil || d.tree == nil {
+		return nil, fmt.Errorf("%w: %d", ErrStreamIndexOutOfRange, index)
+	}
+	streams := d.Streams()
+	if index < 0 || index >= len(streams) {
+		return nil, fmt.Errorf("%w: %d", ErrStreamIndexOutOfRange, index)
+	}
+	stream := streams[index]
+	encoded, err := d.encodedStreamBytes(stream)
+	if err != nil {
+		return nil, err
+	}
+	filters := stream.FilterChain
+	if len(filters) == 0 && stream.Filter != "" {
+		filters = []string{stream.Filter}
+	}
+	if len(filters) == 0 {
+		return bytes.Clone(encoded), nil
+	}
+	if len(filters) != 1 || filters[0] != "FlateDecode" {
+		return nil, unsupported(fmt.Sprintf("stream %d uses unsupported filter chain %v", index, filters))
+	}
+	if stream.DecodeParms != "" {
+		return nil, unsupported(fmt.Sprintf("stream %d uses unsupported DecodeParms", index))
+	}
+	decoded, err := flateDecode(encoded)
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func (d *Document) encodedStreamBytes(stream Stream) ([]byte, error) {
+	if stream.SpanStart < 0 || stream.SpanEnd < stream.SpanStart || stream.SpanEnd > int64(len(d.input)) {
+		return nil, unsupported(fmt.Sprintf("stream %d has invalid byte boundaries", stream.Index))
+	}
+	encoded := d.input[stream.SpanStart:stream.SpanEnd]
+	if stream.EncodedLength >= 0 && len(encoded) != stream.EncodedLength {
+		return nil, unsupported(fmt.Sprintf("stream %d byte boundaries do not match encoded length", stream.Index))
+	}
+	return encoded, nil
 }
 
 func intMetaDefault(meta map[string]any, key string, fallback int) int {

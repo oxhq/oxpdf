@@ -9,19 +9,21 @@ import (
 
 // Field describes a PDF form field.
 type Field struct {
-	Name         string
-	Type         string
-	Value        string
-	DefaultValue string
-	Status       string
-	ReadOnly     bool
-	Required     bool
-	NoExport     bool
-	Flags        []string
-	TypeFlags    []string
-	Options      []string
-	ButtonStates []string
-	Blockers     []string
+	Name                  string
+	DecodedName           string
+	Type                  string
+	Value                 string
+	DefaultValue          string
+	Status                string
+	ReadOnly              bool
+	Required              bool
+	NoExport              bool
+	Flags                 []string
+	TypeFlags             []string
+	Options               []string
+	ButtonStates          []string
+	ButtonAppearanceProof bool
+	Blockers              []string
 }
 
 // Fields lists AcroForm fields with conservative fillability metadata.
@@ -60,6 +62,10 @@ func (d *Document) Fill(values map[string]string) ([]byte, error) {
 	if d == nil {
 		return nil, unsupported("missing document")
 	}
+	fields, err := d.Fields()
+	if err != nil {
+		return nil, err
+	}
 	out := d.Bytes()
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -67,7 +73,11 @@ func (d *Document) Fill(values map[string]string) ([]byte, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		next, _, verification, err := binaspdf.ApplyFormFieldEdit(out, key, values[key])
+		backingName, err := resolveFormFieldBackingName(fields, key)
+		if err != nil {
+			return nil, err
+		}
+		next, _, verification, err := binaspdf.ApplyFormFieldEdit(out, backingName, values[key])
 		if err != nil {
 			return nil, unsupported(err.Error())
 		}
@@ -96,7 +106,7 @@ func (d *Document) SetCheckbox(name string, checked bool) ([]byte, error) {
 	if checked {
 		value = onState
 	}
-	return d.Fill(map[string]string{name: value})
+	return d.Fill(map[string]string{field.Name: value})
 }
 
 // SetButtonChoice sets a button/radio field to an exact exported appearance state.
@@ -111,13 +121,16 @@ func (d *Document) SetButtonChoice(name string, state string) ([]byte, error) {
 	if containsString(field.TypeFlags, "pushbutton") {
 		return nil, unsupported(fmt.Sprintf("field %q is a pushbutton", name))
 	}
+	if !containsString(field.TypeFlags, "radio") {
+		return nil, unsupported(fmt.Sprintf("field %q is not a radio button", name))
+	}
 	if !containsString(field.ButtonStates, "Off") {
 		return nil, unsupported(fmt.Sprintf("field %q has no Off state", name))
 	}
 	if !containsString(field.ButtonStates, state) {
 		return nil, unsupported(fmt.Sprintf("field %q does not allow state %q", name, state))
 	}
-	return d.Fill(map[string]string{name: state})
+	return d.Fill(map[string]string{field.Name: state})
 }
 
 // Annotation describes a page annotation.
@@ -215,19 +228,21 @@ func (d *Document) SetAnnotationContents(index int, contents string, opts ...Ann
 
 func mapFormField(field binaspdf.FormFieldMetadata) Field {
 	return Field{
-		Name:         field.Name,
-		Type:         field.FieldType,
-		Value:        stringValue(field.Value),
-		DefaultValue: stringValue(field.DefaultValue),
-		Status:       field.FillStatus,
-		ReadOnly:     field.ReadOnly,
-		Required:     field.Required,
-		NoExport:     field.NoExport,
-		Flags:        append([]string(nil), field.FlagNames...),
-		TypeFlags:    append([]string(nil), field.TypeFlagNames...),
-		Options:      append([]string(nil), field.Options...),
-		ButtonStates: append([]string(nil), field.ButtonStates...),
-		Blockers:     append([]string(nil), field.FillBlockers...),
+		Name:                  field.Name,
+		DecodedName:           decodePDFTextBytes([]byte(field.Name)),
+		Type:                  field.FieldType,
+		Value:                 stringValue(field.Value),
+		DefaultValue:          stringValue(field.DefaultValue),
+		Status:                field.FillStatus,
+		ReadOnly:              field.ReadOnly,
+		Required:              field.Required,
+		NoExport:              field.NoExport,
+		Flags:                 append([]string(nil), field.FlagNames...),
+		TypeFlags:             append([]string(nil), field.TypeFlagNames...),
+		Options:               append([]string(nil), field.Options...),
+		ButtonStates:          append([]string(nil), field.ButtonStates...),
+		ButtonAppearanceProof: field.ButtonWidgetAppearanceProof,
+		Blockers:              append([]string(nil), field.FillBlockers...),
 	}
 }
 
@@ -243,8 +258,12 @@ func (d *Document) buttonField(name string) (Field, error) {
 	if err != nil {
 		return Field{}, err
 	}
+	backingName, err := resolveFormFieldBackingName(fields, name)
+	if err != nil {
+		return Field{}, err
+	}
 	for _, field := range fields {
-		if field.Name != name {
+		if field.Name != backingName {
 			continue
 		}
 		if field.Type != "Btn" {
@@ -253,16 +272,41 @@ func (d *Document) buttonField(name string) (Field, error) {
 		if field.Status != "supported" || len(field.Blockers) > 0 {
 			return Field{}, unsupported(fmt.Sprintf("field %q is not safely settable", name))
 		}
+		if !field.ButtonAppearanceProof {
+			return Field{}, unsupported(fmt.Sprintf("field %q has no proven button appearance states", name))
+		}
 		return field, nil
 	}
 	return Field{}, unsupported(fmt.Sprintf("no AcroForm field matches %q", name))
+}
+
+func resolveFormFieldBackingName(fields []Field, name string) (string, error) {
+	for _, field := range fields {
+		if field.Name == name {
+			return field.Name, nil
+		}
+	}
+	var match *Field
+	for i := range fields {
+		if fields[i].DecodedName != name {
+			continue
+		}
+		if match != nil {
+			return "", unsupported(fmt.Sprintf("decoded field name %q matches multiple AcroForm fields", name))
+		}
+		match = &fields[i]
+	}
+	if match == nil {
+		return "", unsupported(fmt.Sprintf("no AcroForm field matches %q", name))
+	}
+	return match.Name, nil
 }
 
 func checkboxOnState(field Field) (string, bool) {
 	if containsString(field.TypeFlags, "radio") || containsString(field.TypeFlags, "pushbutton") {
 		return "", false
 	}
-	if !containsString(field.ButtonStates, "Off") {
+	if !field.ButtonAppearanceProof {
 		return "", false
 	}
 	onState := ""
