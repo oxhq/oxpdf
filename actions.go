@@ -12,6 +12,8 @@ import (
 // JavaScriptAction describes a document JavaScript action dictionary.
 type JavaScriptAction struct {
 	ObjectNumber int
+	Name         string
+	Source       string
 	Script       string
 }
 
@@ -32,27 +34,176 @@ func (d *Document) JavaScriptActions() ([]JavaScriptAction, error) {
 	return javascriptActionsForInput(d.input)
 }
 
+// JavaScriptNameTreeActions lists JavaScript actions reachable from the
+// catalog /Names /JavaScript name tree.
+func (d *Document) JavaScriptNameTreeActions() ([]JavaScriptAction, error) {
+	if d == nil {
+		return nil, nil
+	}
+	catalog, ok := d.Catalog()
+	if !ok || catalog.Names == nil {
+		return nil, nil
+	}
+	objects := parseIndirectObjects(d.input)
+	namesObject, ok := indirectObjectByNumber(objects, catalog.Names.Number, catalog.Names.Generation)
+	if !ok {
+		return nil, unsupported("catalog names object is missing")
+	}
+	namesDict, ok := objectDictionary(namesObject.body)
+	if !ok {
+		return nil, unsupported("catalog names object is not a dictionary")
+	}
+	javascriptRef := directReference(namesDict, "JavaScript")
+	if javascriptRef == nil {
+		return nil, nil
+	}
+	actions := make([]JavaScriptAction, 0)
+	err := collectJavaScriptNameTreeActions(objects, *javascriptRef, map[objectRef]bool{}, &actions)
+	if err != nil {
+		return nil, err
+	}
+	return actions, nil
+}
+
 func javascriptActionsForInput(input []byte) ([]JavaScriptAction, error) {
 	actions := make([]JavaScriptAction, 0)
 	for _, object := range parseIndirectObjects(input) {
-		dict, ok := objectDictionary(object.body)
-		if !ok || !hasPDFNameEntry(dict, "S", "JavaScript") {
-			continue
+		action, ok, err := javascriptActionFromObject(object, "", "direct")
+		if err != nil {
+			return nil, err
 		}
-		raw, ok := directNameValue(dict, "JS")
-		if !ok {
-			continue
+		if ok {
+			actions = append(actions, action)
 		}
-		script, ok := parsePDFTextValue(raw)
-		if !ok {
-			return nil, unsupported(fmt.Sprintf("JavaScript action %d uses unsupported /JS representation", object.number))
-		}
-		actions = append(actions, JavaScriptAction{
-			ObjectNumber: object.number,
-			Script:       script,
-		})
 	}
 	return actions, nil
+}
+
+func collectJavaScriptNameTreeActions(objects []indirectObject, ref ObjectReference, seen map[objectRef]bool, out *[]JavaScriptAction) error {
+	key := objectRef{number: ref.Number, gen: ref.Generation}
+	if seen[key] {
+		return unsupported(fmt.Sprintf("JavaScript name tree cycle at %d %d R", ref.Number, ref.Generation))
+	}
+	seen[key] = true
+	object, ok := indirectObjectByNumber(objects, ref.Number, ref.Generation)
+	if !ok {
+		return unsupported(fmt.Sprintf("JavaScript name tree node %d %d R is missing", ref.Number, ref.Generation))
+	}
+	dict, ok := objectDictionary(object.body)
+	if !ok {
+		return unsupported(fmt.Sprintf("JavaScript name tree node %d is not a dictionary", object.number))
+	}
+	for _, kid := range directReferenceArray(dict, "Kids") {
+		if err := collectJavaScriptNameTreeActions(objects, kid, seen, out); err != nil {
+			return err
+		}
+	}
+	namesRaw, ok := directArrayValue(dict, "Names")
+	if !ok {
+		return nil
+	}
+	pairs, err := parseNameTreeReferencePairs(namesRaw, "JavaScript")
+	if err != nil {
+		return err
+	}
+	for _, pair := range pairs {
+		actionObject, ok := indirectObjectByNumber(objects, pair.ref.Number, pair.ref.Generation)
+		if !ok {
+			return unsupported(fmt.Sprintf("JavaScript action %q object %d %d R is missing", pair.name, pair.ref.Number, pair.ref.Generation))
+		}
+		action, ok, err := javascriptActionFromObject(actionObject, pair.name, "name-tree")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return unsupported(fmt.Sprintf("JavaScript name tree entry %q does not reference a JavaScript action", pair.name))
+		}
+		*out = append(*out, action)
+	}
+	return nil
+}
+
+func javascriptActionFromObject(object indirectObject, name, source string) (JavaScriptAction, bool, error) {
+	dict, ok := objectDictionary(object.body)
+	if !ok || !hasPDFNameEntry(dict, "S", "JavaScript") {
+		return JavaScriptAction{}, false, nil
+	}
+	raw, ok := directNameValue(dict, "JS")
+	if !ok {
+		return JavaScriptAction{}, false, nil
+	}
+	script, ok := parsePDFTextValue(raw)
+	if !ok {
+		return JavaScriptAction{}, false, unsupported(fmt.Sprintf("JavaScript action %d uses unsupported /JS representation", object.number))
+	}
+	return JavaScriptAction{
+		ObjectNumber: object.number,
+		Name:         name,
+		Source:       source,
+		Script:       script,
+	}, true, nil
+}
+
+type nameTreeReferencePair struct {
+	name string
+	ref  ObjectReference
+}
+
+func parseNameTreeReferencePairs(input []byte, label string) ([]nameTreeReferencePair, error) {
+	i := 0
+	pairs := make([]nameTreeReferencePair, 0)
+	for {
+		i = skipPDFSpace(input, i)
+		if i >= len(input) {
+			return pairs, nil
+		}
+		if input[i] != '(' && input[i] != '<' {
+			return nil, unsupported(fmt.Sprintf("%s name tree uses unsupported name representation", label))
+		}
+		nameEnd := i
+		var ok bool
+		if input[i] == '(' {
+			nameEnd, ok = scanLiteralEnd(input, i)
+			if !ok {
+				return nil, unsupported(fmt.Sprintf("%s name tree has malformed literal name", label))
+			}
+			nameEnd++
+		} else {
+			endRel := bytes.IndexByte(input[i+1:], '>')
+			if endRel == -1 {
+				return nil, unsupported(fmt.Sprintf("%s name tree has malformed hex name", label))
+			}
+			nameEnd = i + 1 + endRel + 1
+		}
+		name, ok := parsePDFTextValue(input[i:nameEnd])
+		if !ok {
+			return nil, unsupported(fmt.Sprintf("%s name tree name is not readable", label))
+		}
+		i = skipPDFSpace(input, nameEnd)
+		valueStart := i
+		fields := 0
+		for i < len(input) && fields < 3 {
+			i = skipPDFSpace(input, i)
+			if i >= len(input) {
+				break
+			}
+			for i < len(input) && !isPDFSpaceByte(input[i]) && !isPDFDelimiterByte(input[i]) {
+				i++
+			}
+			fields++
+		}
+		if fields < 3 {
+			return nil, unsupported(fmt.Sprintf("%s name tree entry %q has incomplete reference", label, name))
+		}
+		ref, ok := parsePDFRef(input[valueStart:i])
+		if !ok {
+			return nil, unsupported(fmt.Sprintf("%s name tree entry %q is not a direct object reference", label, name))
+		}
+		pairs = append(pairs, nameTreeReferencePair{
+			name: name,
+			ref:  ObjectReference{Number: ref.number, Generation: ref.gen},
+		})
+	}
 }
 
 // Attachments lists embedded file payloads backed by direct Filespec objects.

@@ -2,7 +2,9 @@ package oxpdf
 
 import (
 	"bytes"
+	"crypto/x509"
 	"strconv"
+	"time"
 
 	binaspdf "github.com/oxhq/binas/pkg/adapters/pdf"
 )
@@ -13,6 +15,14 @@ type Security struct {
 	Signed     bool
 	Encryption Encryption
 	Signature  Signature
+}
+
+// SignatureTrustPolicy controls the optional certificate-chain status reported
+// for document signatures. OxPDF never loads system roots for this check.
+type SignatureTrustPolicy struct {
+	Roots         []*x509.Certificate
+	Intermediates []*x509.Certificate
+	CurrentTime   time.Time
 }
 
 // Encryption summarizes an encryption dictionary when one is present.
@@ -74,10 +84,28 @@ type Signature struct {
 
 // Security returns read-only security boundary metadata.
 func (d *Document) Security() Security {
+	return d.securityWithOptions(binaspdf.SecurityMetadataOptions{})
+}
+
+// SecurityWithSignatureTrustPolicy returns read-only security boundary metadata
+// using only the caller-provided signature trust policy. It reports validation
+// status fields without claiming legal trust, revocation, timestamp, or viewer
+// policy acceptance.
+func (d *Document) SecurityWithSignatureTrustPolicy(policy SignatureTrustPolicy) Security {
+	return d.securityWithOptions(binaspdf.SecurityMetadataOptions{
+		SignatureTrust: binaspdf.SignatureTrustOptions{
+			Roots:         policy.Roots,
+			Intermediates: policy.Intermediates,
+			CurrentTime:   policy.CurrentTime,
+		},
+	})
+}
+
+func (d *Document) securityWithOptions(options binaspdf.SecurityMetadataOptions) Security {
 	if d == nil {
 		return Security{}
 	}
-	metadata := binaspdf.SecurityMetadataForInput(d.input)
+	metadata := binaspdf.SecurityMetadataForInputWithOptions(d.input, options)
 	security := Security{
 		Encrypted: metadata.Encrypted,
 		Signed:    metadata.Signed,

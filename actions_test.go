@@ -43,6 +43,36 @@ func TestPypdfCorpusJavaScriptActions(t *testing.T) {
 	}
 }
 
+func TestJavaScriptNameTreeActionsRequireCatalogReachability(t *testing.T) {
+	doc, err := OpenBytes(syntheticJavaScriptNameTreePDF())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	direct, err := doc.JavaScriptActions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct) != 2 {
+		t.Fatalf("JavaScriptActions() len = %d, want blind scan of 2 direct actions: %+v", len(direct), direct)
+	}
+
+	reachable, err := doc.JavaScriptNameTreeActions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reachable) != 1 {
+		t.Fatalf("JavaScriptNameTreeActions() len = %d, want 1 reachable action: %+v", len(reachable), reachable)
+	}
+	action := reachable[0]
+	if action.Name != "ReachableJS" || action.Source != "name-tree" || action.ObjectNumber != 7 {
+		t.Fatalf("reachable JavaScript action metadata = %+v", action)
+	}
+	if !strings.Contains(action.Script, "reachable") {
+		t.Fatalf("reachable JavaScript action script = %q", action.Script)
+	}
+}
+
 func TestPypdfCorpusAttachments(t *testing.T) {
 	resources := pypdfResources(t)
 	doc, err := OpenFile(filepath.Join(resources, "attachment.pdf"))
@@ -108,6 +138,19 @@ func TestAttachmentNameWithoutWhitespace(t *testing.T) {
 	if !bytes.Equal(attachment.Content, payload) || attachment.Size != len(payload) {
 		t.Fatalf("Attachment content = %q size %d, want %q size %d", attachment.Content, attachment.Size, payload, len(payload))
 	}
+}
+
+func syntheticJavaScriptNameTreePDF() []byte {
+	return syntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R /Names 4 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+		[]byte("<< /JavaScript 5 0 R >>"),
+		[]byte("<< /Kids [6 0 R] >>"),
+		[]byte("<< /Names [(ReachableJS) 7 0 R] >>"),
+		[]byte("<< /S /JavaScript /JS (app.alert('reachable')) >>"),
+		[]byte("<< /S /JavaScript /JS (app.alert('orphan')) >>"),
+	)
 }
 
 func syntheticAttachmentPDF(t *testing.T, name string, payload []byte) []byte {

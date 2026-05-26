@@ -17,6 +17,21 @@ type TextMatch struct {
 	Encoding string
 }
 
+// TextRun describes one selectable text-show operation with conservative
+// layout metadata from the backing parser. It is not a word, line, bounding-box,
+// OCR, or reflow model.
+type TextRun struct {
+	Page     int
+	Text     string
+	X        float64
+	Y        float64
+	Font     string
+	FontSize float64
+	Operator string
+	Kind     string
+	Encoding string
+}
+
 // TextEditability reports whether verified text replacement is currently safe.
 type TextEditability struct {
 	ReplaceTextSupported bool
@@ -118,6 +133,52 @@ func (p *Page) ExtractText() (string, error) {
 		return "", err
 	}
 	return local, nil
+}
+
+// ExtractTextRuns returns page-scoped selectable text-show runs in parser order.
+func (p *Page) ExtractTextRuns() ([]TextRun, error) {
+	if p == nil || p.doc == nil {
+		return nil, nil
+	}
+	nodes, err := pdfapi.QueryText(p.doc.input, pdfapi.TextSelector{}, p.doc.options)
+	if err != nil {
+		return nil, classifyParseError(err)
+	}
+	pageIndexes := pageObjectIndexByNumber(p.doc.input)
+	runs := make([]TextRun, 0)
+	for _, node := range nodes {
+		text, ok := node.Value.(string)
+		if !ok {
+			continue
+		}
+		pageIndex, ok := nodePageIndex(node, pageIndexes)
+		if !ok {
+			return nil, unsupported("page text run extraction requires binas page metadata")
+		}
+		if pageIndex != p.index {
+			continue
+		}
+		x, ok := floatMeta(node.Meta, "text_x")
+		if !ok {
+			return nil, unsupported("page text run extraction requires binas text_x metadata")
+		}
+		y, ok := floatMeta(node.Meta, "text_y")
+		if !ok {
+			return nil, unsupported("page text run extraction requires binas text_y metadata")
+		}
+		runs = append(runs, TextRun{
+			Page:     pageIndex,
+			Text:     text,
+			X:        x,
+			Y:        y,
+			Font:     stringMeta(node.Meta, "font"),
+			FontSize: floatMetaDefault(node.Meta, "font_size", 0),
+			Operator: stringMeta(node.Meta, "operator"),
+			Kind:     node.Kind,
+			Encoding: stringMeta(node.Meta, "encoding"),
+		})
+	}
+	return runs, nil
 }
 
 func nodePageIndex(node core.Node, pageIndexes map[int]int) (int, bool) {
@@ -286,6 +347,31 @@ func localTextArrayValue(token string) (string, bool) {
 		}
 	}
 	return out.String(), true
+}
+
+func floatMetaDefault(meta map[string]any, key string, fallback float64) float64 {
+	if value, ok := floatMeta(meta, key); ok {
+		return value
+	}
+	return fallback
+}
+
+func floatMeta(meta map[string]any, key string) (float64, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	switch value := meta[key].(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	default:
+		return 0, false
+	}
 }
 
 // TextEditability returns conservative replacement support for this document.

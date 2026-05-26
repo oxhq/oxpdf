@@ -90,6 +90,58 @@ func TestFindTextMapsPageAndExtractsTextBeyondFirstPage(t *testing.T) {
 	}
 }
 
+func TestExtractTextRunsPreservesOrderAndPosition(t *testing.T) {
+	content := "BT\n/F1 12 Tf\n72 720 Td\n(Top) Tj\n18 TL\nT*\n(Bottom) Tj\n1 0 0 1 144 700 Tm\n(Moved) Tj\nET"
+	doc, err := OpenBytes(contentPageTextPDF(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := page.ExtractTextRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("ExtractTextRuns() len = %d, want 3: %+v", len(runs), runs)
+	}
+	want := []TextRun{
+		{Page: 0, Text: "Top", X: 72, Y: 720, Font: "F1", FontSize: 12, Operator: "Tj"},
+		{Page: 0, Text: "Bottom", X: 72, Y: 702, Font: "F1", FontSize: 12, Operator: "Tj"},
+		{Page: 0, Text: "Moved", X: 144, Y: 700, Font: "F1", FontSize: 12, Operator: "Tj"},
+	}
+	for i := range want {
+		assertTextRun(t, runs[i], want[i])
+	}
+}
+
+func TestExtractTextRunsFiltersToRequestedPage(t *testing.T) {
+	doc, err := OpenBytes(multiPageContentTextPDF(
+		"BT\n/F1 12 Tf\n72 720 Td\n(First) Tj\nET",
+		"BT\n/F1 9 Tf\n30 40 Td\n(Second A) Tj\n12 TL\nT*\n(Second B) Tj\nET",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := doc.Page(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := page.ExtractTextRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("ExtractTextRuns() len = %d, want 2: %+v", len(runs), runs)
+	}
+	assertTextRun(t, runs[0], TextRun{Page: 1, Text: "Second A", X: 30, Y: 40, Font: "F1", FontSize: 9, Operator: "Tj"})
+	assertTextRun(t, runs[1], TextRun{Page: 1, Text: "Second B", X: 30, Y: 28, Font: "F1", FontSize: 9, Operator: "Tj"})
+}
+
 func TestReplaceTextOccurrenceSelectsExactMatchIndex(t *testing.T) {
 	doc, err := OpenBytes(multiPageTextPDF("Repeated", "Repeated"))
 	if err != nil {
@@ -227,26 +279,50 @@ func textPDF(text string) []byte {
 }
 
 func multiPageTextPDF(texts ...string) []byte {
-	pages := make([]string, 0, len(texts))
 	contents := make([]string, 0, len(texts))
+	for _, text := range texts {
+		contents = append(contents, "BT /F1 12 Tf 72 720 Td ("+text+") Tj ET")
+	}
+	return multiPageContentTextPDF(contents...)
+}
+
+func contentPageTextPDF(content string) []byte {
+	return multiPageContentTextPDF(content)
+}
+
+func multiPageContentTextPDF(pageContents ...string) []byte {
+	pages := make([]string, 0, len(pageContents))
+	contents := make([]string, 0, len(pageContents))
 	kids := ""
-	fontObjectNumber := 3 + len(texts)*2
-	for i, text := range texts {
+	fontObjectNumber := 3 + len(pageContents)*2
+	for i, content := range pageContents {
 		pageObjectNumber := 3 + i
-		contentObjectNumber := 3 + len(texts) + i
+		contentObjectNumber := 3 + len(pageContents) + i
 		kids += itoa(pageObjectNumber) + " 0 R "
 		pages = append(pages, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 "+itoa(fontObjectNumber)+" 0 R >> >> /Contents "+itoa(contentObjectNumber)+" 0 R >>")
-		content := "BT /F1 12 Tf 72 720 Td (" + text + ") Tj ET"
 		contents = append(contents, "<< /Length "+itoa(len(content))+" >>\nstream\n"+content+"\nendstream")
 	}
 	objects := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [" + kids + "] /Count " + itoa(len(texts)) + " >>",
+		"<< /Type /Pages /Kids [" + kids + "] /Count " + itoa(len(pageContents)) + " >>",
 	}
 	objects = append(objects, pages...)
 	objects = append(objects, contents...)
 	objects = append(objects, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 	return pdfObjects(objects...)
+}
+
+func assertTextRun(t *testing.T, got, want TextRun) {
+	t.Helper()
+	if got.Page != want.Page ||
+		got.Text != want.Text ||
+		got.X != want.X ||
+		got.Y != want.Y ||
+		got.Font != want.Font ||
+		got.FontSize != want.FontSize ||
+		got.Operator != want.Operator {
+		t.Fatalf("TextRun = %+v, want %+v", got, want)
+	}
 }
 
 func objectStreamTextPDF() []byte {
