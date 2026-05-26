@@ -21,6 +21,7 @@ type JavaScriptAction struct {
 type Attachment struct {
 	Name         string
 	ObjectNumber int
+	Source       string
 	Filter       string
 	Size         int
 	Content      []byte
@@ -218,27 +219,120 @@ func (d *Document) Attachments() ([]Attachment, error) {
 		if !ok || !bytes.Contains(dict, []byte("/EF")) {
 			continue
 		}
-		streamRef, ok := filespecEmbeddedFileRef(dict)
-		if !ok {
-			continue
-		}
-		streamObject, ok := indirectObjectByNumber(objects, streamRef.number, streamRef.gen)
-		if !ok {
-			return nil, unsupported(fmt.Sprintf("embedded file stream %d %d R is missing", streamRef.number, streamRef.gen))
-		}
-		content, filter, err := embeddedFileStreamContent(streamObject)
+		attachment, ok, err := attachmentFromFilespec(objects, dict, "direct")
 		if err != nil {
 			return nil, err
 		}
-		attachments = append(attachments, Attachment{
-			Name:         filespecName(dict),
-			ObjectNumber: streamObject.number,
-			Filter:       filter,
-			Size:         len(content),
-			Content:      bytes.Clone(content),
-		})
+		if ok {
+			attachments = append(attachments, attachment)
+		}
 	}
 	return attachments, nil
+}
+
+// AttachmentNameTree lists embedded files reachable from the catalog
+// /Names /EmbeddedFiles name tree.
+func (d *Document) AttachmentNameTree() ([]Attachment, error) {
+	if d == nil {
+		return nil, nil
+	}
+	catalog, ok := d.Catalog()
+	if !ok || catalog.Names == nil {
+		return nil, nil
+	}
+	objects := parseIndirectObjects(d.input)
+	namesObject, ok := indirectObjectByNumber(objects, catalog.Names.Number, catalog.Names.Generation)
+	if !ok {
+		return nil, unsupported("catalog names object is missing")
+	}
+	namesDict, ok := objectDictionary(namesObject.body)
+	if !ok {
+		return nil, unsupported("catalog names object is not a dictionary")
+	}
+	embeddedFilesRef := directReference(namesDict, "EmbeddedFiles")
+	if embeddedFilesRef == nil {
+		return nil, nil
+	}
+	attachments := make([]Attachment, 0)
+	err := collectAttachmentNameTree(objects, *embeddedFilesRef, map[objectRef]bool{}, &attachments)
+	if err != nil {
+		return nil, err
+	}
+	return attachments, nil
+}
+
+func collectAttachmentNameTree(objects []indirectObject, ref ObjectReference, seen map[objectRef]bool, out *[]Attachment) error {
+	key := objectRef{number: ref.Number, gen: ref.Generation}
+	if seen[key] {
+		return unsupported(fmt.Sprintf("embedded file name tree cycle at %d %d R", ref.Number, ref.Generation))
+	}
+	seen[key] = true
+	object, ok := indirectObjectByNumber(objects, ref.Number, ref.Generation)
+	if !ok {
+		return unsupported(fmt.Sprintf("embedded file name tree node %d %d R is missing", ref.Number, ref.Generation))
+	}
+	dict, ok := objectDictionary(object.body)
+	if !ok {
+		return unsupported(fmt.Sprintf("embedded file name tree node %d is not a dictionary", object.number))
+	}
+	for _, kid := range directReferenceArray(dict, "Kids") {
+		if err := collectAttachmentNameTree(objects, kid, seen, out); err != nil {
+			return err
+		}
+	}
+	namesRaw, ok := directArrayValue(dict, "Names")
+	if !ok {
+		return nil
+	}
+	pairs, err := parseNameTreeReferencePairs(namesRaw, "EmbeddedFiles")
+	if err != nil {
+		return err
+	}
+	for _, pair := range pairs {
+		filespecObject, ok := indirectObjectByNumber(objects, pair.ref.Number, pair.ref.Generation)
+		if !ok {
+			return unsupported(fmt.Sprintf("embedded file %q filespec %d %d R is missing", pair.name, pair.ref.Number, pair.ref.Generation))
+		}
+		filespecDict, ok := objectDictionary(filespecObject.body)
+		if !ok {
+			return unsupported(fmt.Sprintf("embedded file %q filespec object is not a dictionary", pair.name))
+		}
+		attachment, ok, err := attachmentFromFilespec(objects, filespecDict, "name-tree")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return unsupported(fmt.Sprintf("embedded file name tree entry %q does not reference a filespec with an embedded file", pair.name))
+		}
+		if attachment.Name == "" {
+			attachment.Name = pair.name
+		}
+		*out = append(*out, attachment)
+	}
+	return nil
+}
+
+func attachmentFromFilespec(objects []indirectObject, dict []byte, source string) (Attachment, bool, error) {
+	streamRef, ok := filespecEmbeddedFileRef(dict)
+	if !ok {
+		return Attachment{}, false, nil
+	}
+	streamObject, ok := indirectObjectByNumber(objects, streamRef.number, streamRef.gen)
+	if !ok {
+		return Attachment{}, false, unsupported(fmt.Sprintf("embedded file stream %d %d R is missing", streamRef.number, streamRef.gen))
+	}
+	content, filter, err := embeddedFileStreamContent(streamObject)
+	if err != nil {
+		return Attachment{}, false, err
+	}
+	return Attachment{
+		Name:         filespecName(dict),
+		ObjectNumber: streamObject.number,
+		Source:       source,
+		Filter:       filter,
+		Size:         len(content),
+		Content:      bytes.Clone(content),
+	}, true, nil
 }
 
 type objectRef struct {

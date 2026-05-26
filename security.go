@@ -2,6 +2,7 @@ package oxpdf
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"strconv"
 	"time"
@@ -23,6 +24,83 @@ type SignatureTrustPolicy struct {
 	Roots         []*x509.Certificate
 	Intermediates []*x509.Certificate
 	CurrentTime   time.Time
+}
+
+// SignatureByteRange describes one public byte range used for PDF signature
+// digest calculation.
+type SignatureByteRange struct {
+	Offset int
+	Length int
+}
+
+// ExternalSigningCallback signs a caller-provided digest with an external key.
+//
+// OxPDF never accepts private key material in this API. The callback receives
+// digest bytes and byte-range metadata only; key lookup stays behind the
+// caller's ExternalKeyID boundary.
+type ExternalSigningCallback func(context.Context, ExternalSigningRequest) (ExternalSigningResponse, error)
+
+// ExternalSignerOptions configures incremental re-signing with an external
+// signer.
+type ExternalSignerOptions struct {
+	Name               string
+	ExternalKeyID      string
+	DigestAlgorithm    string
+	SignatureContainer string
+	SubFilter          string
+	ReservedBytes      int
+	Sign               ExternalSigningCallback
+}
+
+// ExternalSigningCallbackMetadata describes the external signing boundary that
+// is safe to report in plans.
+type ExternalSigningCallbackMetadata struct {
+	Name               string
+	ExternalKeyID      string
+	DigestAlgorithm    string
+	SignatureContainer string
+	SubFilter          string
+}
+
+// ExternalSigningRequest is sent to the caller-provided external signer.
+type ExternalSigningRequest struct {
+	Digest             []byte
+	DigestAlgorithm    string
+	SignatureContainer string
+	SubFilter          string
+	ByteRanges         []SignatureByteRange
+	Signature          Signature
+}
+
+// ExternalSigningResponse is returned by the caller-provided external signer.
+type ExternalSigningResponse struct {
+	Signature          []byte
+	SignatureContainer string
+	CertificateChain   [][]byte
+}
+
+// ExternalSigningPlan reports whether the current PDF shape can be re-signed
+// through the narrow external-signer path.
+type ExternalSigningPlan struct {
+	Supported         bool
+	UnsupportedReason string
+	CallbackMetadata  ExternalSigningCallbackMetadata
+	Signature         Signature
+	ByteRanges        []SignatureByteRange
+}
+
+// SignatureReSigningVerification reports post-apply proof for incremental
+// re-signing.
+type SignatureReSigningVerification struct {
+	IncrementalUpdate                  bool
+	ReparseOK                          bool
+	ByteRanges                         []SignatureByteRange
+	ByteRangeDigestValidation          bool
+	ByteRangeDigestValidationStatus    string
+	CertificateTrustValidation         bool
+	CertificateTrustValidationStatus   string
+	CryptographicSignatureVerification bool
+	CryptographicSignatureStatus       string
 }
 
 // Encryption summarizes an encryption dictionary when one is present.
@@ -109,32 +187,7 @@ func (d *Document) securityWithOptions(options binaspdf.SecurityMetadataOptions)
 	security := Security{
 		Encrypted: metadata.Encrypted,
 		Signed:    metadata.Signed,
-		Signature: Signature{
-			Present:                          metadata.Signature.Present,
-			ByteRangeCount:                   metadata.Signature.ByteRangeCount,
-			ByteRangeTotalRanges:             metadata.Signature.ByteRangeTotalRanges,
-			ByteRangeCoveredBytes:            metadata.Signature.ByteRangeCoveredBytes,
-			ByteRangeStatus:                  metadata.Signature.ByteRangeStatus,
-			ContentsByteLength:               intValueFromPointer(metadata.Signature.ContentsByteLength),
-			HasContentsByteLength:            metadata.Signature.ContentsByteLength != nil,
-			SubFilter:                        metadata.Signature.SubFilter,
-			Filter:                           metadata.Signature.Filter,
-			SigningTime:                      metadata.Signature.SigningTime,
-			ObjectNumber:                     intValueFromPointer(metadata.Signature.ObjectNumber),
-			ObjectGeneration:                 intValueFromPointer(metadata.Signature.ObjectGeneration),
-			SignatureContainer:               metadata.Signature.SignatureContainer,
-			DigestAlgorithm:                  metadata.Signature.DigestAlgorithm,
-			DigestAlgorithmStatus:            metadata.Signature.DigestAlgorithmStatus,
-			CertificateCount:                 metadata.Signature.CertificateCount,
-			SignerCertificateSubject:         metadata.Signature.SignerCertificateSubject,
-			SignerCertificateIssuer:          metadata.Signature.SignerCertificateIssuer,
-			ByteRangeDigestValidation:        metadata.Signature.ByteRangeDigestValidation,
-			ByteRangeDigestValidationStatus:  metadata.Signature.ByteRangeDigestValidationStatus,
-			CryptographicValidation:          metadata.Signature.CryptographicValidation,
-			CryptographicValidationStatus:    metadata.Signature.CryptographicValidationStatus,
-			CertificateTrustValidation:       metadata.Signature.CertificateTrustValidation,
-			CertificateTrustValidationStatus: metadata.Signature.CertificateTrustValidationStatus,
-		},
+		Signature: mapBinasSignatureMetadata(metadata.Signature),
 	}
 	if metadata.Encryption != nil {
 		security.Encryption = Encryption{
@@ -165,6 +218,38 @@ func (d *Document) securityWithOptions(options binaspdf.SecurityMetadataOptions)
 	return security
 }
 
+// PlanIncrementalReSigning validates whether input can be incrementally
+// re-signed through an external signer without calling the signer.
+func PlanIncrementalReSigning(input []byte, options ExternalSignerOptions) (ExternalSigningPlan, error) {
+	plan, err := binaspdf.PlanIncrementalReSigning(input, binaspdf.SignatureSigningPlanOptions{
+		Callback:         noopBinasExternalSigner,
+		CallbackMetadata: mapExternalSignerMetadata(options),
+		ReservedBytes:    options.ReservedBytes,
+	})
+	out := mapExternalSigningPlan(plan)
+	if err != nil {
+		return out, unsupported(err.Error())
+	}
+	return out, nil
+}
+
+// ApplyIncrementalReSigning appends a new signature dictionary update, sends
+// the resulting digest to the caller-provided external signer, embeds the
+// returned signature bytes, and verifies the new byte-range digest layer.
+func ApplyIncrementalReSigning(ctx context.Context, input []byte, options ExternalSignerOptions) ([]byte, ExternalSigningPlan, SignatureReSigningVerification, error) {
+	out, plan, verification, err := binaspdf.ApplyIncrementalReSigning(ctx, input, binaspdf.SignatureSigningPlanOptions{
+		Callback:         mapExternalSigningCallback(options.Sign),
+		CallbackMetadata: mapExternalSignerMetadata(options),
+		ReservedBytes:    options.ReservedBytes,
+	})
+	mappedPlan := mapExternalSigningPlan(plan)
+	mappedVerification := mapSignatureReSigningVerification(verification)
+	if err != nil {
+		return nil, mappedPlan, mappedVerification, unsupported(err.Error())
+	}
+	return out, mappedPlan, mappedVerification, nil
+}
+
 func intValueFromPointer(value *int) int {
 	if value == nil {
 		return 0
@@ -177,6 +262,119 @@ func boolValueFromPointer(value *bool) bool {
 		return false
 	}
 	return *value
+}
+
+func mapBinasSignatureMetadata(signature binaspdf.SignatureMetadata) Signature {
+	return Signature{
+		Present:                          signature.Present,
+		ByteRangeCount:                   signature.ByteRangeCount,
+		ByteRangeTotalRanges:             signature.ByteRangeTotalRanges,
+		ByteRangeCoveredBytes:            signature.ByteRangeCoveredBytes,
+		ByteRangeStatus:                  signature.ByteRangeStatus,
+		ContentsByteLength:               intValueFromPointer(signature.ContentsByteLength),
+		HasContentsByteLength:            signature.ContentsByteLength != nil,
+		SubFilter:                        signature.SubFilter,
+		Filter:                           signature.Filter,
+		SigningTime:                      signature.SigningTime,
+		ObjectNumber:                     intValueFromPointer(signature.ObjectNumber),
+		ObjectGeneration:                 intValueFromPointer(signature.ObjectGeneration),
+		SignatureContainer:               signature.SignatureContainer,
+		DigestAlgorithm:                  signature.DigestAlgorithm,
+		DigestAlgorithmStatus:            signature.DigestAlgorithmStatus,
+		CertificateCount:                 signature.CertificateCount,
+		SignerCertificateSubject:         signature.SignerCertificateSubject,
+		SignerCertificateIssuer:          signature.SignerCertificateIssuer,
+		ByteRangeDigestValidation:        signature.ByteRangeDigestValidation,
+		ByteRangeDigestValidationStatus:  signature.ByteRangeDigestValidationStatus,
+		CryptographicValidation:          signature.CryptographicValidation,
+		CryptographicValidationStatus:    signature.CryptographicValidationStatus,
+		CertificateTrustValidation:       signature.CertificateTrustValidation,
+		CertificateTrustValidationStatus: signature.CertificateTrustValidationStatus,
+	}
+}
+
+func mapExternalSignerMetadata(options ExternalSignerOptions) binaspdf.SignatureSigningCallbackMetadata {
+	return binaspdf.SignatureSigningCallbackMetadata{
+		Name:               options.Name,
+		ExternalKeyID:      options.ExternalKeyID,
+		DigestAlgorithm:    options.DigestAlgorithm,
+		SignatureContainer: options.SignatureContainer,
+		SubFilter:          options.SubFilter,
+	}
+}
+
+func mapExternalSigningPlan(plan binaspdf.SignatureSigningPlan) ExternalSigningPlan {
+	return ExternalSigningPlan{
+		Supported:         plan.Supported,
+		UnsupportedReason: plan.UnsupportedReason,
+		CallbackMetadata: ExternalSigningCallbackMetadata{
+			Name:               plan.CallbackMetadata.Name,
+			ExternalKeyID:      plan.CallbackMetadata.ExternalKeyID,
+			DigestAlgorithm:    plan.CallbackMetadata.DigestAlgorithm,
+			SignatureContainer: plan.CallbackMetadata.SignatureContainer,
+			SubFilter:          plan.CallbackMetadata.SubFilter,
+		},
+		Signature:  mapBinasSignatureMetadata(plan.Signature),
+		ByteRanges: mapBinasSignatureByteRanges(plan.ByteRanges),
+	}
+}
+
+func mapBinasSignatureByteRanges(ranges []binaspdf.SignatureByteRange) []SignatureByteRange {
+	out := make([]SignatureByteRange, 0, len(ranges))
+	for _, r := range ranges {
+		out = append(out, SignatureByteRange{Offset: r.Offset, Length: r.Length})
+	}
+	return out
+}
+
+func mapSignatureReSigningVerification(verification binaspdf.SignatureReSigningVerification) SignatureReSigningVerification {
+	return SignatureReSigningVerification{
+		IncrementalUpdate:                  verification.IncrementalUpdate,
+		ReparseOK:                          verification.ReparseOK,
+		ByteRanges:                         mapBinasSignatureByteRanges(verification.ByteRanges),
+		ByteRangeDigestValidation:          verification.ByteRangeDigestValidation,
+		ByteRangeDigestValidationStatus:    verification.ByteRangeDigestValidationStatus,
+		CertificateTrustValidation:         verification.CertificateTrustValidation,
+		CertificateTrustValidationStatus:   verification.CertificateTrustValidationStatus,
+		CryptographicSignatureVerification: verification.CryptographicSignatureVerification,
+		CryptographicSignatureStatus:       verification.CryptographicSignatureStatus,
+	}
+}
+
+func mapExternalSigningCallback(callback ExternalSigningCallback) binaspdf.SignatureSigningCallback {
+	if callback == nil {
+		return nil
+	}
+	return func(ctx context.Context, request binaspdf.SignatureSigningRequest) (binaspdf.SignatureSigningResponse, error) {
+		response, err := callback(ctx, ExternalSigningRequest{
+			Digest:             bytes.Clone(request.Digest),
+			DigestAlgorithm:    request.DigestAlgorithm,
+			SignatureContainer: request.SignatureContainer,
+			SubFilter:          request.SubFilter,
+			ByteRanges:         mapBinasSignatureByteRanges(request.ByteRanges),
+			Signature:          mapBinasSignatureMetadata(request.Signature),
+		})
+		if err != nil {
+			return binaspdf.SignatureSigningResponse{}, err
+		}
+		return binaspdf.SignatureSigningResponse{
+			Signature:          bytes.Clone(response.Signature),
+			SignatureContainer: response.SignatureContainer,
+			CertificateChain:   cloneByteSlices(response.CertificateChain),
+		}, nil
+	}
+}
+
+func noopBinasExternalSigner(context.Context, binaspdf.SignatureSigningRequest) (binaspdf.SignatureSigningResponse, error) {
+	return binaspdf.SignatureSigningResponse{Signature: []byte{0}}, nil
+}
+
+func cloneByteSlices(values [][]byte) [][]byte {
+	out := make([][]byte, 0, len(values))
+	for _, value := range values {
+		out = append(out, bytes.Clone(value))
+	}
+	return out
 }
 
 func mapEncryptionCryptFilters(filters []binaspdf.EncryptionCryptFilter) []EncryptionCryptFilter {

@@ -140,6 +140,37 @@ func TestAttachmentNameWithoutWhitespace(t *testing.T) {
 	}
 }
 
+func TestAttachmentNameTreeRequiresCatalogReachability(t *testing.T) {
+	payload := []byte("reachable attachment")
+	doc, err := OpenBytes(syntheticAttachmentNameTreePDF(t, payload, []byte("orphan attachment")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	direct, err := doc.Attachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct) != 2 {
+		t.Fatalf("Attachments() len = %d, want blind scan of 2 direct filespecs: %+v", len(direct), direct)
+	}
+
+	reachable, err := doc.AttachmentNameTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reachable) != 1 {
+		t.Fatalf("AttachmentNameTree() len = %d, want 1 reachable attachment: %+v", len(reachable), reachable)
+	}
+	attachment := reachable[0]
+	if attachment.Name != "reachable.txt" || attachment.Source != "name-tree" || attachment.ObjectNumber != 8 {
+		t.Fatalf("reachable attachment metadata = %+v", attachment)
+	}
+	if !bytes.Equal(attachment.Content, payload) || attachment.Size != len(payload) {
+		t.Fatalf("reachable attachment content = %q size %d, want %q size %d", attachment.Content, attachment.Size, payload, len(payload))
+	}
+}
+
 func syntheticJavaScriptNameTreePDF() []byte {
 	return syntheticPDFObjects(
 		[]byte("<< /Type /Catalog /Pages 2 0 R /Names 4 0 R >>"),
@@ -153,7 +184,39 @@ func syntheticJavaScriptNameTreePDF() []byte {
 	)
 }
 
+func syntheticAttachmentNameTreePDF(t *testing.T, reachablePayload, orphanPayload []byte) []byte {
+	t.Helper()
+	reachableStream := compressedEmbeddedFileObject(t, reachablePayload)
+	orphanStream := compressedEmbeddedFileObject(t, orphanPayload)
+	return syntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R /Names 4 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+		[]byte("<< /EmbeddedFiles 5 0 R >>"),
+		[]byte("<< /Kids [6 0 R] >>"),
+		[]byte("<< /Names [(reachable.txt) 7 0 R] >>"),
+		[]byte("<< /Type /Filespec /F (reachable.txt) /EF << /F 8 0 R >> >>"),
+		reachableStream,
+		[]byte("<< /Type /Filespec /F (orphan.txt) /EF << /F 10 0 R >> >>"),
+		orphanStream,
+	)
+}
+
 func syntheticAttachmentPDF(t *testing.T, name string, payload []byte) []byte {
+	t.Helper()
+	embeddedFile := compressedEmbeddedFileObject(t, payload)
+	objects := [][]byte{
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R] >>"),
+		embeddedFile,
+		[]byte(fmt.Sprintf("<< /Type /Filespec /F(%s) /UF(%s) /EF<< /F 4 0 R /UF 4 0 R >> >>", name, name)),
+		[]byte("<< /Type /Annot /Subtype /FileAttachment /Rect [0 0 10 10] /FS 5 0 R >>"),
+	}
+	return syntheticPDFObjects(objects...)
+}
+
+func compressedEmbeddedFileObject(t *testing.T, payload []byte) []byte {
 	t.Helper()
 	var compressed bytes.Buffer
 	writer := zlib.NewWriter(&compressed)
@@ -163,19 +226,11 @@ func syntheticAttachmentPDF(t *testing.T, name string, payload []byte) []byte {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	objects := [][]byte{
-		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
-		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
-		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R] >>"),
-		bytes.Join([][]byte{
-			[]byte(fmt.Sprintf("<< /Type /EmbeddedFile /Length %d /Filter /FlateDecode >>\nstream\n", compressed.Len())),
-			compressed.Bytes(),
-			[]byte("\nendstream"),
-		}, nil),
-		[]byte(fmt.Sprintf("<< /Type /Filespec /F(%s) /UF(%s) /EF<< /F 4 0 R /UF 4 0 R >> >>", name, name)),
-		[]byte("<< /Type /Annot /Subtype /FileAttachment /Rect [0 0 10 10] /FS 5 0 R >>"),
-	}
-	return syntheticPDFObjects(objects...)
+	return bytes.Join([][]byte{
+		[]byte(fmt.Sprintf("<< /Type /EmbeddedFile /Length %d /Filter /FlateDecode >>\nstream\n", compressed.Len())),
+		compressed.Bytes(),
+		[]byte("\nendstream"),
+	}, nil)
 }
 
 func syntheticPDFObjects(objects ...[]byte) []byte {

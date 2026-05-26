@@ -2,6 +2,7 @@ package oxpdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -105,6 +106,104 @@ func TestParseXMPMetadataCommonFieldsByLocalName(t *testing.T) {
 		xmp.Producer != "Loose Producer" ||
 		xmp.Keywords != "loose keywords" {
 		t.Fatalf("parseXMPMetadata() = %+v", xmp)
+	}
+}
+
+func TestSetMetadataWritesInfoAndXMPWithReparseProof(t *testing.T) {
+	input := metadataSyntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+	)
+	doc, err := OpenBytes(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawXMP := `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">Written XMP</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>`
+
+	out, verification, err := doc.SetMetadata(MetadataWrite{
+		Info: map[string]string{
+			"Title":  "Written Title",
+			"Author": "Alice Example",
+		},
+		XMPRawXML: rawXMP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verification.ReparseOK || !verification.InfoUpdated || !verification.XMPUpdated {
+		t.Fatalf("verification = %+v", verification)
+	}
+	reopened, err := OpenBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := reopened.Metadata()
+	if metadata.Title != "Written Title" || metadata.Author != "Alice Example" {
+		t.Fatalf("Metadata() = %+v", metadata)
+	}
+	xmp, ok, err := reopened.XMPMetadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || xmp.RawXML != rawXMP || xmp.Title != "Written XMP" {
+		t.Fatalf("XMPMetadata() = %+v ok=%v", xmp, ok)
+	}
+}
+
+func TestSetMetadataRejectsUnsafeInfoKeyWithoutChangingBytes(t *testing.T) {
+	input := metadataSyntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+	)
+	doc, err := OpenBytes(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, verification, err := doc.SetMetadata(MetadataWrite{
+		Info: map[string]string{"Bad Key": "value"},
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetMetadata() error = %v, want ErrUnsupported", err)
+	}
+	if out != nil {
+		t.Fatalf("SetMetadata() returned %d bytes on rejected write", len(out))
+	}
+	if verification.ReparseOK || verification.InfoUpdated || verification.XMPUpdated {
+		t.Fatalf("verification = %+v, want zero value", verification)
+	}
+	if !bytes.Equal(doc.Bytes(), input) {
+		t.Fatal("document bytes changed after rejected write")
+	}
+}
+
+func TestSetMetadataRejectsUnsafeXMPStreamMarker(t *testing.T) {
+	input := metadataSyntheticPDFObjects(
+		[]byte("<< /Type /Catalog /Pages 2 0 R >>"),
+		[]byte("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+		[]byte("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"),
+	)
+	doc, err := OpenBytes(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, verification, err := doc.SetMetadata(MetadataWrite{
+		XMPRawXML: `<x:xmpmeta xmlns:x="adobe:ns:meta/">endstream</x:xmpmeta>`,
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("SetMetadata() error = %v, want ErrUnsupported", err)
+	}
+	if !strings.Contains(err.Error(), "stream marker") {
+		t.Fatalf("SetMetadata() error = %v, want stream marker rejection", err)
+	}
+	if out != nil {
+		t.Fatalf("SetMetadata() returned %d bytes on rejected XMP", len(out))
+	}
+	if verification.ReparseOK || verification.InfoUpdated || verification.XMPUpdated {
+		t.Fatalf("verification = %+v, want zero value", verification)
 	}
 }
 

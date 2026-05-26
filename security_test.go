@@ -2,12 +2,14 @@ package oxpdf
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -117,6 +119,106 @@ func TestSecurityWithSignatureTrustPolicyUsesOnlyExplicitRoots(t *testing.T) {
 	}
 }
 
+func TestPlanIncrementalReSigningValidatesExternalSignerBoundaryWithoutCallingSigner(t *testing.T) {
+	input := signatureSigningSignedPDFWithCMSMessageDigest(t)
+	called := false
+
+	plan, err := PlanIncrementalReSigning(input, ExternalSignerOptions{
+		Name:               "test external signer",
+		ExternalKeyID:      "kms://tenant/pdf-signing-key",
+		DigestAlgorithm:    "SHA256",
+		SignatureContainer: "PKCS7",
+		SubFilter:          "adbe.pkcs7.detached",
+		Sign: func(context.Context, ExternalSigningRequest) (ExternalSigningResponse, error) {
+			called = true
+			return ExternalSigningResponse{Signature: []byte("not-used")}, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("PlanIncrementalReSigning() error = %v", err)
+	}
+	if called {
+		t.Fatal("PlanIncrementalReSigning called the external signer")
+	}
+	if !plan.Supported || len(plan.ByteRanges) != 2 {
+		t.Fatalf("plan = %+v, want supported two-range signing plan", plan)
+	}
+	if plan.CallbackMetadata.ExternalKeyID != "kms://tenant/pdf-signing-key" {
+		t.Fatalf("ExternalKeyID = %q, want opaque external key handle", plan.CallbackMetadata.ExternalKeyID)
+	}
+	if plan.CallbackMetadata.DigestAlgorithm != "sha256" || plan.CallbackMetadata.SignatureContainer != "pkcs7" {
+		t.Fatalf("callback metadata = %+v, want normalized sha256/pkcs7", plan.CallbackMetadata)
+	}
+	if plan.Signature.ByteRangeStatus != "valid" || !plan.Signature.ByteRangeDigestValidation {
+		t.Fatalf("signature proof = %+v, want valid byte-range digest plan", plan.Signature)
+	}
+}
+
+func TestPlanIncrementalReSigningRejectsPrivateKeyMaterialInMetadata(t *testing.T) {
+	_, err := PlanIncrementalReSigning(signatureSigningSignedPDFWithCMSMessageDigest(t), ExternalSignerOptions{
+		Name:               "unsafe external signer",
+		ExternalKeyID:      "-----BEGIN PRIVATE KEY-----",
+		DigestAlgorithm:    "sha256",
+		SignatureContainer: "pkcs7",
+		SubFilter:          "adbe.pkcs7.detached",
+	})
+
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("PlanIncrementalReSigning() error = %v, want ErrUnsupported", err)
+	}
+	if !strings.Contains(err.Error(), "private key") {
+		t.Fatalf("PlanIncrementalReSigning() error = %q, want private key guidance", err)
+	}
+}
+
+func TestApplyIncrementalReSigningUsesExternalSignerDigestAndValidatesOutput(t *testing.T) {
+	input := signatureSigningSignedPDFWithCMSMessageDigest(t)
+	called := false
+
+	output, plan, verification, err := ApplyIncrementalReSigning(context.Background(), input, ExternalSignerOptions{
+		Name:               "test external signer",
+		ExternalKeyID:      "kms://tenant/pdf-signing-key",
+		DigestAlgorithm:    "sha256",
+		SignatureContainer: "pkcs7",
+		SubFilter:          "adbe.pkcs7.detached",
+		ReservedBytes:      512,
+		Sign: func(_ context.Context, req ExternalSigningRequest) (ExternalSigningResponse, error) {
+			called = true
+			if req.DigestAlgorithm != "sha256" || len(req.Digest) != sha256.Size {
+				t.Fatalf("external signing request digest = %q/%d bytes, want sha256/%d", req.DigestAlgorithm, len(req.Digest), sha256.Size)
+			}
+			if req.SignatureContainer != "pkcs7" || req.SubFilter != "adbe.pkcs7.detached" {
+				t.Fatalf("external signing request container = %q subfilter = %q", req.SignatureContainer, req.SubFilter)
+			}
+			if len(req.ByteRanges) != 2 || req.ByteRanges[0].Offset != 0 || req.ByteRanges[0].Length <= 0 || req.ByteRanges[1].Offset <= req.ByteRanges[0].Length {
+				t.Fatalf("external signing request byte ranges = %+v, want two non-overlapping ranges", req.ByteRanges)
+			}
+			return ExternalSigningResponse{Signature: signatureTrustMinimalDetachedCMS(req.Digest, nil)}, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ApplyIncrementalReSigning() error = %v", err)
+	}
+	if !called {
+		t.Fatal("external signer callback was not called")
+	}
+	if !bytes.HasPrefix(output, input) {
+		t.Fatal("incremental re-signing did not preserve original bytes as prefix")
+	}
+	if !plan.Supported || len(plan.ByteRanges) != 2 {
+		t.Fatalf("plan = %+v, want supported two-range signing plan", plan)
+	}
+	if !verification.IncrementalUpdate || !verification.ReparseOK || !verification.ByteRangeDigestValidation || verification.ByteRangeDigestValidationStatus != "valid" {
+		t.Fatalf("verification = %+v, want valid incremental byte-range digest proof", verification)
+	}
+	signature := (&Document{input: output}).Security().Signature
+	if !signature.ByteRangeDigestValidation || signature.ByteRangeDigestValidationStatus != "valid" {
+		t.Fatalf("output signature digest validation = %t/%q, want true/valid", signature.ByteRangeDigestValidation, signature.ByteRangeDigestValidationStatus)
+	}
+}
+
 type signatureTrustByteRange struct {
 	offset int
 	length int
@@ -169,6 +271,64 @@ func signatureTrustPDF(objects ...string) []byte {
 		fmt.Fprintf(&out, "%d 0 obj\n%s\nendobj\n", i+1, object)
 	}
 	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\n%%EOF\n", len(objects)+1)
+	return out.Bytes()
+}
+
+func signatureSigningSignedPDFWithCMSMessageDigest(t *testing.T) []byte {
+	t.Helper()
+
+	zeroDigest := make([]byte, sha256.Size)
+	placeholderCMS := append(signatureTrustMinimalDetachedCMS(zeroDigest, nil), make([]byte, 8)...)
+	input, ranges := signatureSigningPDFWithContentsPlaceholder(t, len(placeholderCMS))
+	digest := signatureTrustSHA256DigestForRanges(input, ranges)
+	cms := append(signatureTrustMinimalDetachedCMS(digest, nil), make([]byte, 8)...)
+	if len(cms) != len(placeholderCMS) {
+		t.Fatalf("CMS length changed from %d to %d", len(placeholderCMS), len(cms))
+	}
+	return signatureTrustReplaceContentsHex(t, input, cms)
+}
+
+func signatureSigningPDFWithContentsPlaceholder(t *testing.T, contentsLen int) ([]byte, []signatureTrustByteRange) {
+	t.Helper()
+
+	placeholderHex := strings.Repeat("0", contentsLen*2)
+	byteRangePlaceholder := "[0000000000 0000000000 0000000000 0000000000]"
+	input := signatureSigningPDF(
+		"<< /Type /Catalog /SigFlags 3 /AcroForm << /Fields [2 0 R] >> >>",
+		"<< /FT /Sig /T (Approval) /V 3 0 R >>",
+		fmt.Sprintf("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange %s /Contents <%s> >>", byteRangePlaceholder, placeholderHex),
+	)
+	contentsStart := bytes.Index(input, []byte("<"+placeholderHex+">"))
+	if contentsStart < 0 {
+		t.Fatal("signature contents placeholder not found")
+	}
+	contentsEnd := contentsStart + 1 + len(placeholderHex) + 1
+	ranges := []signatureTrustByteRange{
+		{offset: 0, length: contentsStart},
+		{offset: contentsEnd, length: len(input) - contentsEnd},
+	}
+	byteRange := fmt.Sprintf("[%010d %010d %010d %010d]", ranges[0].offset, ranges[0].length, ranges[1].offset, ranges[1].length)
+	if len(byteRange) != len(byteRangePlaceholder) {
+		t.Fatalf("ByteRange replacement length = %d, want %d", len(byteRange), len(byteRangePlaceholder))
+	}
+	return bytes.Replace(input, []byte(byteRangePlaceholder), []byte(byteRange), 1), ranges
+}
+
+func signatureSigningPDF(objects ...string) []byte {
+	var out bytes.Buffer
+	out.WriteString("%PDF-1.7\n")
+	offsets := make([]int, 0, len(objects))
+	for i, object := range objects {
+		offsets = append(offsets, out.Len())
+		fmt.Fprintf(&out, "%d 0 obj\n%s\nendobj\n", i+1, object)
+	}
+	xrefOffset := out.Len()
+	fmt.Fprintf(&out, "xref\n0 %d\n", len(objects)+1)
+	out.WriteString("0000000000 65535 f \n")
+	for _, offset := range offsets {
+		fmt.Fprintf(&out, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&out, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xrefOffset)
 	return out.Bytes()
 }
 

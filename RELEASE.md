@@ -35,6 +35,29 @@ Before claiming release proof, verify the intended tag/module publish path from
 a clean checkout. Record the tag, commit SHA, module version resolution, release
 artifact or registry evidence, and rollback path.
 
+## Semver Tag Preflight
+
+For the first public module cut, use `v0.1.0` unless a previous semver tag is
+found remotely. Do not tag from a dirty worktree. Before creating the tag:
+
+```powershell
+git status --short --branch
+git ls-remote --tags origin
+gh release list --repo oxhq/oxpdf --limit 20
+go list -m -versions github.com/oxhq/oxpdf
+go test ./...
+go vet ./...
+```
+
+If `develop` remains the candidate branch while `main` is the default branch,
+either merge the candidate commit to `main` and tag that merge commit, or record
+why the release is intentionally tagged from `develop`. After tagging, prove
+module availability from outside this repository with:
+
+```powershell
+go list -m github.com/oxhq/oxpdf@v0.1.0
+```
+
 ## Current Boundary
 
 As of this document, the known lightweight local gate is `go test ./...` plus
