@@ -6,9 +6,11 @@ it is rewritten as user-facing documentation.
 ## Current Backing Reality
 
 - The Go implementation on `develop` depends on `github.com/oxhq/binas v0.2.0`.
-- The Rust cutover branch is a separate, local Cargo workspace.  During the
-  migration it consumes Binas through a direct path dependency on the
-  `binas-pdf` crate; it must never introduce a CLI, C ABI, JSON, or Go bridge.
+- The Rust cutover branch is a separate Cargo workspace. During local
+  development it consumes Binas through a direct path dependency on the
+  `binas-pdf` crate; hosted CI recreates that sibling layout at immutable Binas
+  commit `6c1161e310d51dff28b7491c589ec71ab6d5f485`. It must never introduce a
+  CLI, C ABI, JSON, or Go bridge.
 - A migrated Rust operation must call the Binas Rust API directly.  Recreating
   a raw-PDF parser in OxPDF is not a valid port, even if it reproduces a Go
   result for a narrow fixture.

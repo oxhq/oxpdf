@@ -7,17 +7,16 @@ Use the gates below to name the highest proof level actually completed.
 
 The Rust OxPDF facade is an unreleased migration slice, not a replacement for
 the Go module yet. It consumes the local Binas Rust crate through a path
-dependency while both repositories are under active development. That proves a
-direct in-process integration only; it is not a reproducible package, consumer,
-hosted-CI, or release proof.
+dependency while both repositories are under active development. The same
+workspace passed the GitHub-hosted Ubuntu, macOS, and Windows matrix against an
+immutable Binas commit. That proves the direct in-process integration and this
+hosted source configuration; it is not registry-package, independent-consumer,
+or release proof.
 
 Before a Rust OxPDF release claim:
 
-- Binas must publish, or be available from a clean immutable ref, at the exact
-  `binas-pdf` revision used by OxPDF.
 - Replace the local path dependency with that package version or immutable ref.
-- Run the Rust contract suite, an independent downstream Rust consumer, and
-  hosted checks against those exact revisions.
+- Run an independent downstream Rust consumer against that dependency.
 - Exercise the Go rollback window before retiring the Go module.
 
 The local Rust slice is checked from `rust/` with:
@@ -54,6 +53,16 @@ Before claiming hosted CI proof, confirm the target branch or pull request has
 completed hosted checks successfully. Record the CI provider, branch or PR, run
 URL, commit SHA, and check names.
 
+Current Rust hosted proof:
+
+- Provider: GitHub Actions.
+- OxPDF branch/commit: `rewrite/rust-consumer-cutover` at
+  `a02a81f21383a5b35318c502dfcb824cdfaa5016`.
+- Binas commit: `6c1161e310d51dff28b7491c589ec71ab6d5f485`.
+- Run: `https://github.com/oxhq/oxpdf/actions/runs/29696721305`.
+- Checks: Rust formatting, all 66 facade contract tests, strict Clippy, and
+  workspace build on Ubuntu, macOS, and Windows.
+
 ## Release Gate
 
 Before claiming release proof, verify the intended tag/module publish path from
@@ -87,8 +96,8 @@ go list -m github.com/oxhq/oxpdf@v0.1.0
 
 `go test ./...` plus `go vet ./...` evaluate the existing Go implementation.
 The Rust cutover has its own local gate above; neither local gate proves the
-other implementation. Consumer, hosted CI, migration/rollback, and release
-proof remain separate levels.
+other implementation. The Rust hosted matrix above is complete; registry
+consumer, migration/rollback, and release proof remain separate levels.
 
 ## Historical P8.2/P9.3 Audit Stamp - 2026-05-26
 
