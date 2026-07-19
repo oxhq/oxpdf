@@ -84,7 +84,9 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "binas-core"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd415e9919ddd7f60ab247ea4f029298387032b36bd13d419d1ce3438664ca5e"
 dependencies = [
  "serde",
  "serde_json",
@@ -92,7 +94,9 @@ dependencies = [
 
 [[package]]
 name = "binas-pdf"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "480c4c309a88472a8e90476e5446150f96f6ee90f5c43fdc485f90143c0df7d3"
 dependencies = [
  "aes",
  "binas-core",

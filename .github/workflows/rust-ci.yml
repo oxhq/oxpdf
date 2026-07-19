@@ -6,11 +6,6 @@ on:
       - rewrite/rust-consumer-cutover
   pull_request:
   workflow_dispatch:
-    inputs:
-      binas_ref:
-        description: Optional Binas Rust commit SHA or immutable tag override
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -38,14 +33,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: oxpdf
-          persist-credentials: false
-
-      - name: Check out Binas
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: oxhq/binas
-          ref: ${{ inputs.binas_ref || '6c1161e310d51dff28b7491c589ec71ab6d5f485' }}
-          path: binas
           persist-credentials: false
 
       - name: Install stable Rust

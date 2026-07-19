@@ -1,7 +1,8 @@
 # OxPDF Rust cutover slice
 
-This crate consumes `binas-pdf` directly through a development path dependency. That proves
-local development wiring only; it is not a published package or registry/release-consumer proof.
+This crate consumes the published `binas-pdf` 0.1.1 crate directly from crates.io. Locked local
+checks prove this repository's registry-backed integration; they are not independent downstream
+consumer or OxPDF release proof.
 It exposes open, inspect, Info and bounded supported-filter XMP metadata, zero-based page enumeration,
 effective inherited page geometry, structured text extraction, catalog-reachable page
 labels/destinations/outlines/embedded-file metadata, and Binas-verified

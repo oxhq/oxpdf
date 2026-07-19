@@ -7,7 +7,7 @@ repository = "https://github.com/oxhq/oxpdf"
 description = "Rust-native OxPDF facade backed directly by binas-pdf"
 
 [dependencies]
-binas-pdf = { path = "../../binas/crates/binas-pdf" }
+binas-pdf = "0.1.1"
 
 [dev-dependencies]
 flate2 = "1"

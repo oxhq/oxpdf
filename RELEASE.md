@@ -6,16 +6,14 @@ Use the gates below to name the highest proof level actually completed.
 ## Rust Cutover Status
 
 The Rust OxPDF facade is an unreleased migration slice, not a replacement for
-the Go module yet. It consumes the local Binas Rust crate through a path
-dependency while both repositories are under active development. The same
-workspace passed the GitHub-hosted Ubuntu, macOS, and Windows matrix against an
-immutable Binas commit. That proves the direct in-process integration and this
-hosted source configuration; it is not registry-package, independent-consumer,
-or release proof.
+the Go module yet. It consumes the published `binas-pdf` 0.1.1 crate from
+crates.io. Locked local checks prove this repository's registry-backed direct
+integration. The recorded hosted matrix predates this dependency cutover, so a
+new successful run is still required for hosted registry-consumer proof.
 
 Before a Rust OxPDF release claim:
 
-- Replace the local path dependency with that package version or immutable ref.
+- Run the locked registry-backed workspace in the hosted multi-OS matrix.
 - Run an independent downstream Rust consumer against that dependency.
 - Exercise the Go rollback window before retiring the Go module.
 
@@ -53,7 +51,8 @@ Before claiming hosted CI proof, confirm the target branch or pull request has
 completed hosted checks successfully. Record the CI provider, branch or PR, run
 URL, commit SHA, and check names.
 
-Current Rust hosted proof:
+Previous Rust hosted proof (sibling-source dependency; it does not cover the
+current registry-backed checkout):
 
 - Provider: GitHub Actions.
 - OxPDF branch/commit: `rewrite/rust-consumer-cutover` at
@@ -96,8 +95,10 @@ go list -m github.com/oxhq/oxpdf@v0.1.0
 
 `go test ./...` plus `go vet ./...` evaluate the existing Go implementation.
 The Rust cutover has its own local gate above; neither local gate proves the
-other implementation. The Rust hosted matrix above is complete; registry
-consumer, migration/rollback, and release proof remain separate levels.
+other implementation. The previous Rust hosted matrix above is complete only
+for its recorded sibling-source commit. Hosted registry-consumer,
+independent-consumer, migration/rollback, and OxPDF release proof remain
+separate levels.
 
 ## Historical P8.2/P9.3 Audit Stamp - 2026-05-26
 
