@@ -1,0 +1,15 @@
+[package]
+name = "oxpdf"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/oxhq/oxpdf"
+description = "Rust-native OxPDF facade backed directly by binas-pdf"
+
+[dependencies]
+binas-pdf = { path = "../../binas/crates/binas-pdf" }
+
+[dev-dependencies]
+flate2 = "1"
+rcgen = "0.14.8"
+rsa = { version = "0.9", features = ["getrandom"] }

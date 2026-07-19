@@ -3,6 +3,31 @@
 This project should not be called release-ready from source-repo checks alone.
 Use the gates below to name the highest proof level actually completed.
 
+## Rust Cutover Status
+
+The Rust OxPDF facade is an unreleased migration slice, not a replacement for
+the Go module yet. It consumes the local Binas Rust crate through a path
+dependency while both repositories are under active development. That proves a
+direct in-process integration only; it is not a reproducible package, consumer,
+hosted-CI, or release proof.
+
+Before a Rust OxPDF release claim:
+
+- Binas must publish, or be available from a clean immutable ref, at the exact
+  `binas-pdf` revision used by OxPDF.
+- Replace the local path dependency with that package version or immutable ref.
+- Run the Rust contract suite, an independent downstream Rust consumer, and
+  hosted checks against those exact revisions.
+- Exercise the Go rollback window before retiring the Go module.
+
+The local Rust slice is checked from `rust/` with:
+
+```powershell
+cargo fmt --all -- --check
+cargo test -p oxpdf
+cargo clippy -p oxpdf --all-targets -- -D warnings
+```
+
 ## Local Gate
 
 Run from the repository root:
@@ -60,11 +85,15 @@ go list -m github.com/oxhq/oxpdf@v0.1.0
 
 ## Current Boundary
 
-As of this document, the known lightweight local gate is `go test ./...` plus
-`go vet ./...`. Consumer, hosted CI, and release gates remain separate proof
-levels and must be completed explicitly before they are claimed.
+`go test ./...` plus `go vet ./...` evaluate the existing Go implementation.
+The Rust cutover has its own local gate above; neither local gate proves the
+other implementation. Consumer, hosted CI, migration/rollback, and release
+proof remain separate levels.
 
-## P8.2/P9.3 Audit Stamp - 2026-05-26
+## Historical P8.2/P9.3 Audit Stamp - 2026-05-26
+
+This record is historical only: `go.mod` now uses Binas `v0.2.0`, and the Rust
+cutover has not reached a package, consumer, hosted, or release gate.
 
 Current source checkout:
 

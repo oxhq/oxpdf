@@ -5,9 +5,35 @@ it is rewritten as user-facing documentation.
 
 ## Current Backing Reality
 
-- Current dependency: `github.com/oxhq/binas v0.1.1`.
-- OxPDF uses `github.com/oxhq/binas/pkg/pdfapi` for inspect, validate, profile,
-  text query, and verified text rewrite without shelling out.
+- The Go implementation on `develop` depends on `github.com/oxhq/binas v0.2.0`.
+- The Rust cutover branch is a separate, local Cargo workspace.  During the
+  migration it consumes Binas through a direct path dependency on the
+  `binas-pdf` crate; it must never introduce a CLI, C ABI, JSON, or Go bridge.
+- A migrated Rust operation must call the Binas Rust API directly.  Recreating
+  a raw-PDF parser in OxPDF is not a valid port, even if it reproduces a Go
+  result for a narrow fixture.
+- This branch is development-only until Binas has a published Rust package and
+  OxPDF replaces the path dependency with that released package version.
+
+## Rust Cutover Contract
+
+The Go tests are the migration inventory, not automatic proof of feature
+parity.  Port a public operation only when its Rust test exercises a real
+`binas-pdf` document operation and proves the returned bytes or read result.
+
+1. Core reader: `Open`, `OpenFile`, `OpenBytes`, strict/password options,
+   header, page count, page handles, validation, and profile.
+2. Read-only document data: metadata/XMP, page boxes/rotation, text/query,
+   structure, navigation, streams/images, forms/annotations, XFA, and security.
+3. Verified mutation: text, metadata, pages, forms/annotations, streams/images,
+   OCR, XFA, navigation, and signatures.  Each method needs a Binas verification
+   result plus a reopen/readback assertion where Binas exposes one.
+4. Consumer proof: port the applicable Go tests into Rust integration tests,
+   then add a separate downstream Rust consumer before a release claim.
+
+Do not mark a row complete because a Binas unit test exists.  Completion needs
+the OxPDF facade test, a fixture with known provenance, and a direct dependency
+on the same Binas public API that downstream users will compile against.
 
 ## Reader
 
