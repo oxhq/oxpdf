@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: oxhq/binas
-          ref: ${{ inputs.binas_ref || '1e3ecce2c79e1158c5554dbdb3a460f9eeeb4be6' }}
+          ref: ${{ inputs.binas_ref || '6c1161e310d51dff28b7491c589ec71ab6d5f485' }}
           path: binas
           persist-credentials: false
 
