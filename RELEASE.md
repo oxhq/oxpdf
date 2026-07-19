@@ -8,12 +8,11 @@ Use the gates below to name the highest proof level actually completed.
 The Rust OxPDF facade is an unreleased migration slice, not a replacement for
 the Go module yet. It consumes the published `binas-pdf` 0.1.1 crate from
 crates.io. Locked local checks prove this repository's registry-backed direct
-integration. The recorded hosted matrix predates this dependency cutover, so a
-new successful run is still required for hosted registry-consumer proof.
+integration. The same locked dependency and all 66 facade contract tests passed
+the hosted Ubuntu, macOS, and Windows matrix recorded below.
 
 Before a Rust OxPDF release claim:
 
-- Run the locked registry-backed workspace in the hosted multi-OS matrix.
 - Run an independent downstream Rust consumer against that dependency.
 - Exercise the Go rollback window before retiring the Go module.
 
@@ -51,14 +50,14 @@ Before claiming hosted CI proof, confirm the target branch or pull request has
 completed hosted checks successfully. Record the CI provider, branch or PR, run
 URL, commit SHA, and check names.
 
-Previous Rust hosted proof (sibling-source dependency; it does not cover the
-current registry-backed checkout):
+Current Rust hosted registry-consumer proof:
 
 - Provider: GitHub Actions.
 - OxPDF branch/commit: `rewrite/rust-consumer-cutover` at
-  `a02a81f21383a5b35318c502dfcb824cdfaa5016`.
-- Binas commit: `6c1161e310d51dff28b7491c589ec71ab6d5f485`.
-- Run: `https://github.com/oxhq/oxpdf/actions/runs/29696721305`.
+  `6bc8483e352158e8fe72f7d3ac0034c358fc36ef`.
+- Binas dependency: crates.io `binas-pdf` 0.1.1, locked with registry source and
+  checksum together with `binas-core` 0.1.1.
+- Run: `https://github.com/oxhq/oxpdf/actions/runs/29697970281`.
 - Checks: Rust formatting, all 66 facade contract tests, strict Clippy, and
   workspace build on Ubuntu, macOS, and Windows.
 
@@ -95,15 +94,15 @@ go list -m github.com/oxhq/oxpdf@v0.1.0
 
 `go test ./...` plus `go vet ./...` evaluate the existing Go implementation.
 The Rust cutover has its own local gate above; neither local gate proves the
-other implementation. The previous Rust hosted matrix above is complete only
-for its recorded sibling-source commit. Hosted registry-consumer,
-independent-consumer, migration/rollback, and OxPDF release proof remain
+other implementation. The hosted registry-consumer gate above is complete.
+Independent-consumer, migration/rollback, and OxPDF release proof remain
 separate levels.
 
 ## Historical P8.2/P9.3 Audit Stamp - 2026-05-26
 
-This record is historical only: `go.mod` now uses Binas `v0.2.0`, and the Rust
-cutover has not reached a package, consumer, hosted, or release gate.
+This record is historical only: `go.mod` now uses Binas `v0.2.0`. At the time
+of this stamp, the Rust cutover had not reached a package, consumer, hosted, or
+release gate.
 
 Current source checkout:
 
